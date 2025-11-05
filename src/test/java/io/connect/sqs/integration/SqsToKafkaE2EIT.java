@@ -24,6 +24,7 @@ import software.amazon.awssdk.services.sqs.model.*;
 
 import java.time.Duration;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.testcontainers.containers.localstack.LocalStackContainer.Service.SQS;
@@ -236,7 +237,7 @@ class SqsToKafkaE2EIT {
         // This test verifies all messages arrive, not necessarily in order
         List<String> receivedMessages = kafkaRecords.stream()
                 .map(ConsumerRecord::value)
-                .toList();
+                .collect(Collectors.toList());
 
         assertThat(receivedMessages).containsExactlyInAnyOrderElementsOf(orderedMessages);
 
