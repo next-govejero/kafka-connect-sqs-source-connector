@@ -32,6 +32,18 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
     private static final String AWS_STS_ROLE_SESSION_NAME_DOC = "Session name for assumed role";
     private static final String AWS_STS_ROLE_SESSION_NAME_DEFAULT = "kafka-connect-sqs";
 
+    public static final String AWS_STS_ROLE_EXTERNAL_ID_CONFIG = "aws.sts.role.external.id";
+    private static final String AWS_STS_ROLE_EXTERNAL_ID_DOC = "External ID for assuming role (for third-party access)";
+
+    public static final String AWS_CREDENTIALS_PROFILE_CONFIG = "aws.credentials.profile";
+    private static final String AWS_CREDENTIALS_PROFILE_DOC = "AWS credentials profile name to use from credentials file";
+
+    public static final String AWS_CREDENTIALS_FILE_PATH_CONFIG = "aws.credentials.file.path";
+    private static final String AWS_CREDENTIALS_FILE_PATH_DOC = "Path to AWS credentials file (default: ~/.aws/credentials)";
+
+    public static final String AWS_ENDPOINT_OVERRIDE_CONFIG = "aws.endpoint.override";
+    private static final String AWS_ENDPOINT_OVERRIDE_DOC = "Override AWS SQS endpoint (useful for LocalStack or custom endpoints)";
+
     // SQS Configuration
     public static final String SQS_QUEUE_URL_CONFIG = "sqs.queue.url";
     private static final String SQS_QUEUE_URL_DOC = "AWS SQS queue URL to consume messages from";
@@ -164,6 +176,54 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
                 ++awsGroupOrder,
                 Width.MEDIUM,
                 "AWS STS Role Session Name"
+        );
+
+        configDef.define(
+                AWS_STS_ROLE_EXTERNAL_ID_CONFIG,
+                Type.STRING,
+                null,
+                Importance.LOW,
+                AWS_STS_ROLE_EXTERNAL_ID_DOC,
+                awsGroup,
+                ++awsGroupOrder,
+                Width.LONG,
+                "AWS STS Role External ID"
+        );
+
+        configDef.define(
+                AWS_CREDENTIALS_PROFILE_CONFIG,
+                Type.STRING,
+                null,
+                Importance.LOW,
+                AWS_CREDENTIALS_PROFILE_DOC,
+                awsGroup,
+                ++awsGroupOrder,
+                Width.MEDIUM,
+                "AWS Credentials Profile"
+        );
+
+        configDef.define(
+                AWS_CREDENTIALS_FILE_PATH_CONFIG,
+                Type.STRING,
+                null,
+                Importance.LOW,
+                AWS_CREDENTIALS_FILE_PATH_DOC,
+                awsGroup,
+                ++awsGroupOrder,
+                Width.LONG,
+                "AWS Credentials File Path"
+        );
+
+        configDef.define(
+                AWS_ENDPOINT_OVERRIDE_CONFIG,
+                Type.STRING,
+                null,
+                Importance.LOW,
+                AWS_ENDPOINT_OVERRIDE_DOC,
+                awsGroup,
+                ++awsGroupOrder,
+                Width.LONG,
+                "AWS Endpoint Override"
         );
 
         // SQS Group
@@ -436,6 +496,22 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
 
     public String getAwsStsRoleSessionName() {
         return getString(AWS_STS_ROLE_SESSION_NAME_CONFIG);
+    }
+
+    public String getAwsStsRoleExternalId() {
+        return getString(AWS_STS_ROLE_EXTERNAL_ID_CONFIG);
+    }
+
+    public String getAwsCredentialsProfile() {
+        return getString(AWS_CREDENTIALS_PROFILE_CONFIG);
+    }
+
+    public String getAwsCredentialsFilePath() {
+        return getString(AWS_CREDENTIALS_FILE_PATH_CONFIG);
+    }
+
+    public String getAwsEndpointOverride() {
+        return getString(AWS_ENDPOINT_OVERRIDE_CONFIG);
     }
 
     public String getSqsQueueUrl() {

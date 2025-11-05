@@ -6,9 +6,10 @@ import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.profiles.ProfileFile;
 import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageBatchRequest;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageBatchRequestEntry;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageBatchResponse;
@@ -25,13 +26,14 @@ import java.util.stream.Collectors;
 
 /**
  * AWS SQS client wrapper for the connector.
+ * Supports multiple authentication methods for flexible deployment across AWS, other clouds, and bare metal.
  */
 public class SqsClient implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(SqsClient.class);
 
     private final SqsSourceConnectorConfig config;
-    private final SqsClient sqsClient;
+    private final software.amazon.awssdk.services.sqs.SqsClient awsSqsClient;
     private final String queueUrl;
 
     public SqsClient(SqsSourceConnectorConfig config) {
@@ -41,10 +43,24 @@ public class SqsClient implements AutoCloseable {
         AwsCredentialsProvider credentialsProvider = createCredentialsProvider();
         Region region = Region.of(config.getAwsRegion());
 
-        this.sqsClient = software.amazon.awssdk.services.sqs.SqsClient.builder()
-                .region(region)
-                .credentialsProvider(credentialsProvider)
-                .build();
+        software.amazon.awssdk.services.sqs.SqsClientBuilder builder =
+                software.amazon.awssdk.services.sqs.SqsClient.builder()
+                        .region(region)
+                        .credentialsProvider(credentialsProvider);
+
+        // Override endpoint if specified (useful for LocalStack, custom endpoints, or testing)
+        String endpointOverride = config.getAwsEndpointOverride();
+        if (endpointOverride != null && !endpointOverride.trim().isEmpty()) {
+            try {
+                builder.endpointOverride(java.net.URI.create(endpointOverride));
+                log.info("Using custom SQS endpoint: {}", endpointOverride);
+            } catch (Exception e) {
+                log.error("Invalid endpoint override URL: {}", endpointOverride, e);
+                throw new IllegalArgumentException("Invalid AWS endpoint override: " + endpointOverride, e);
+            }
+        }
+
+        this.awsSqsClient = builder.build();
 
         log.info("SQS Client initialized for region: {}, queue: {}", region, queueUrl);
     }
@@ -66,7 +82,7 @@ public class SqsClient implements AutoCloseable {
             }
 
             ReceiveMessageRequest request = requestBuilder.build();
-            ReceiveMessageResponse response = sqsClient.receiveMessage(request);
+            ReceiveMessageResponse response = awsSqsClient.receiveMessage(request);
 
             List<Message> messages = response.messages();
             log.debug("Received {} messages from SQS queue: {}", messages.size(), queueUrl);
@@ -116,7 +132,7 @@ public class SqsClient implements AutoCloseable {
                 .entries(entries)
                 .build();
 
-        DeleteMessageBatchResponse response = sqsClient.deleteMessageBatch(request);
+        DeleteMessageBatchResponse response = awsSqsClient.deleteMessageBatch(request);
 
         if (!response.failed().isEmpty()) {
             log.warn("Failed to delete {} messages from SQS", response.failed().size());
@@ -126,23 +142,94 @@ public class SqsClient implements AutoCloseable {
         }
     }
 
+    /**
+     * Creates AWS credentials provider with support for multiple authentication methods:
+     * 1. Static credentials (access key + secret key)
+     * 2. AWS credentials profile (from ~/.aws/credentials or custom file)
+     * 3. Default credentials provider chain, which includes:
+     *    - System properties
+     *    - Environment variables
+     *    - Web Identity Token (EKS)
+     *    - Shared credentials file (~/.aws/credentials)
+     *    - ECS container credentials (ECS Fargate task role)
+     *    - EC2 instance profile credentials
+     * 4. STS Assume Role (optional, on top of base credentials)
+     *
+     * This supports deployments in:
+     * - AWS (ECS Fargate, EC2, EKS)
+     * - Other cloud providers (Azure, GCP, etc.) using static credentials or profiles
+     * - Bare metal / on-premises using static credentials or profiles
+     */
     private AwsCredentialsProvider createCredentialsProvider() {
         String accessKeyId = config.getAwsAccessKeyId();
         String secretAccessKey = config.getAwsSecretAccessKey();
+        String profileName = config.getAwsCredentialsProfile();
+        String credentialsFilePath = config.getAwsCredentialsFilePath();
         String assumeRoleArn = config.getAwsAssumeRoleArn();
 
         AwsCredentialsProvider baseProvider;
 
+        // Priority 1: Static credentials (highest priority for explicit configuration)
         if (accessKeyId != null && secretAccessKey != null) {
-            log.info("Using static AWS credentials");
+            log.info("Using static AWS credentials (access key + secret key)");
+            log.info("Deployment: Any environment (cloud-agnostic, bare metal, on-premises)");
             baseProvider = StaticCredentialsProvider.create(
                     AwsBasicCredentials.create(accessKeyId, secretAccessKey));
-        } else {
+        }
+        // Priority 2: Named profile from credentials file
+        else if (profileName != null && !profileName.trim().isEmpty()) {
+            log.info("Using AWS credentials profile: {}", profileName);
+            log.info("Deployment: Any environment with credentials file (cloud-agnostic, bare metal, on-premises)");
+
+            ProfileCredentialsProvider.Builder profileBuilder =
+                    ProfileCredentialsProvider.builder().profileName(profileName);
+
+            // Use custom credentials file path if specified
+            if (credentialsFilePath != null && !credentialsFilePath.trim().isEmpty()) {
+                try {
+                    java.nio.file.Path credPath = java.nio.file.Paths.get(credentialsFilePath);
+                    profileBuilder.profileFile(ProfileFile.builder()
+                            .content(credPath)
+                            .type(ProfileFile.Type.CREDENTIALS)
+                            .build());
+                    log.info("Using custom credentials file: {}", credentialsFilePath);
+                } catch (Exception e) {
+                    log.error("Failed to load credentials file: {}", credentialsFilePath, e);
+                    throw new IllegalArgumentException("Invalid credentials file path: " + credentialsFilePath, e);
+                }
+            }
+
+            baseProvider = profileBuilder.build();
+        }
+        // Priority 3: Default credentials provider chain
+        else {
             log.info("Using default AWS credentials provider chain");
+            log.info("Credentials will be resolved from:");
+            log.info("  1. System properties (aws.accessKeyId, aws.secretAccessKey)");
+            log.info("  2. Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)");
+            log.info("  3. Web Identity Token (EKS ServiceAccount)");
+            log.info("  4. Shared credentials file (~/.aws/credentials)");
+            log.info("  5. ECS container credentials (Fargate task role)");
+            log.info("  6. EC2 instance profile credentials");
+
+            // Detect deployment environment
+            String ecsContainerCredentialsUri = System.getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI");
+            String ecsContainerCredentialsFull = System.getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI");
+            String ec2MetadataDisabled = System.getenv("AWS_EC2_METADATA_DISABLED");
+
+            if (ecsContainerCredentialsUri != null || ecsContainerCredentialsFull != null) {
+                log.info("Deployment: AWS ECS Fargate (detected container credentials)");
+            } else if ("true".equalsIgnoreCase(ec2MetadataDisabled)) {
+                log.info("Deployment: Non-AWS environment (EC2 metadata disabled)");
+            } else {
+                log.info("Deployment: Environment-based authentication");
+            }
+
             baseProvider = DefaultCredentialsProvider.create();
         }
 
-        if (assumeRoleArn != null) {
+        // Optional: Assume role for cross-account access or additional permissions
+        if (assumeRoleArn != null && !assumeRoleArn.trim().isEmpty()) {
             log.info("Assuming IAM role: {}", assumeRoleArn);
             return createAssumeRoleProvider(baseProvider, assumeRoleArn);
         }
@@ -159,14 +246,20 @@ public class SqsClient implements AutoCloseable {
                 .credentialsProvider(baseProvider)
                 .build();
 
-        AssumeRoleRequest assumeRoleRequest = AssumeRoleRequest.builder()
+        AssumeRoleRequest.Builder assumeRoleBuilder = AssumeRoleRequest.builder()
                 .roleArn(roleArn)
-                .roleSessionName(config.getAwsStsRoleSessionName())
-                .build();
+                .roleSessionName(config.getAwsStsRoleSessionName());
+
+        // Add external ID if provided (required for third-party access)
+        String externalId = config.getAwsStsRoleExternalId();
+        if (externalId != null && !externalId.trim().isEmpty()) {
+            assumeRoleBuilder.externalId(externalId);
+            log.info("Using external ID for role assumption (third-party access)");
+        }
 
         return StsAssumeRoleCredentialsProvider.builder()
                 .stsClient(stsClient)
-                .refreshRequest(assumeRoleRequest)
+                .refreshRequest(assumeRoleBuilder.build())
                 .build();
     }
 
@@ -180,8 +273,8 @@ public class SqsClient implements AutoCloseable {
 
     @Override
     public void close() {
-        if (sqsClient != null) {
-            sqsClient.close();
+        if (awsSqsClient != null) {
+            awsSqsClient.close();
             log.info("SQS Client closed");
         }
     }
