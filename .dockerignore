@@ -1,0 +1,42 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+docs/
+CHANGELOG.md
+CONTRIBUTING.md
+LICENSE
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.project
+.classpath
+.settings/
+
+# Build artifacts (except target which we need)
+*.log
+*.tmp
+
+# CI/CD
+.github/
+.travis.yml
+.circleci/
+
+# Docker
+docker-compose*.yml
+Dockerfile*
+.dockerignore
+
+# Test files (we skip tests in Docker build)
+src/test/
+
+# Scripts
+scripts/
+
+# Config examples (not needed in build)
+config/
