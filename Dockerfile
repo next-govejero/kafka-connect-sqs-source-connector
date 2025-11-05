@@ -26,10 +26,10 @@ LABEL description="Kafka Connect SQS Source Connector"
 # Copy the connector JAR and dependencies
 COPY --from=builder /build/target/kafka-connect-sqs-source-1.0.0-SNAPSHOT-package.zip /tmp/
 
-# Extract connector package to plugin path
+# Extract connector package to plugin path using jar command (available in Java runtime)
 RUN mkdir -p /usr/share/java/kafka-connect-sqs && \
     cd /usr/share/java/kafka-connect-sqs && \
-    unzip /tmp/kafka-connect-sqs-source-1.0.0-SNAPSHOT-package.zip && \
+    jar xf /tmp/kafka-connect-sqs-source-1.0.0-SNAPSHOT-package.zip && \
     rm /tmp/kafka-connect-sqs-source-1.0.0-SNAPSHOT-package.zip
 
 # Set plugin path
