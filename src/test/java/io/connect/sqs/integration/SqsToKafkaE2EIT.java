@@ -1,10 +1,17 @@
 package io.connect.sqs.integration;
 
+import io.connect.sqs.SqsSourceConnector;
+import io.connect.sqs.SqsSourceTask;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.apache.kafka.common.serialization.StringSerializer;
+import org.apache.kafka.connect.source.SourceRecord;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,6 +66,7 @@ class SqsToKafkaE2EIT {
 
     private SqsClient sqsClient;
     private KafkaConsumer<String, String> kafkaConsumer;
+    private KafkaProducer<String, String> kafkaProducer;
     private String queueUrl;
 
     @BeforeEach
@@ -95,6 +103,16 @@ class SqsToKafkaE2EIT {
         kafkaConsumer = new KafkaConsumer<>(consumerProps);
         kafkaConsumer.subscribe(Collections.singletonList(TEST_TOPIC));
         log.info("Kafka consumer subscribed to topic: {}", TEST_TOPIC);
+
+        // Create Kafka producer
+        Properties producerProps = new Properties();
+        producerProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
+        producerProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        producerProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        producerProps.put(ProducerConfig.ACKS_CONFIG, "all");
+
+        kafkaProducer = new KafkaProducer<>(producerProps);
+        log.info("Kafka producer initialized");
     }
 
     @AfterEach
@@ -109,6 +127,9 @@ class SqsToKafkaE2EIT {
         }
         if (kafkaConsumer != null) {
             kafkaConsumer.close();
+        }
+        if (kafkaProducer != null) {
+            kafkaProducer.close();
         }
     }
 
@@ -292,9 +313,82 @@ class SqsToKafkaE2EIT {
         connectorConfig.put("sasl.jaas.config",
                 "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"test\" password=\"test\";");
 
-        // Note: Actually running the full connector would require a Kafka Connect runtime
-        // This test validates the components work, but full e2e would need Connect running
-        log.info("Connector configuration prepared (full e2e would start Kafka Connect here)");
+        log.info("Starting connector task to process messages...");
+
+        // Create and start the connector
+        SqsSourceConnector connector = new SqsSourceConnector();
+        connector.start(connectorConfig);
+
+        // Get task configurations
+        List<Map<String, String>> taskConfigs = connector.taskConfigs(1);
+        assertThat(taskConfigs).hasSize(1);
+
+        // Create and start the task
+        SqsSourceTask task = new SqsSourceTask();
+        task.start(taskConfigs.get(0));
+
+        try {
+            // Poll for messages and produce to Kafka
+            int pollAttempts = 0;
+            int maxPollAttempts = 30; // Max attempts to poll
+            int totalMessagesProcessed = 0;
+
+            while (pollAttempts < maxPollAttempts) {
+                List<SourceRecord> records = task.poll();
+
+                if (records != null && !records.isEmpty()) {
+                    log.info("Polled {} records from connector", records.size());
+
+                    // Produce records to Kafka
+                    for (SourceRecord record : records) {
+                        ProducerRecord<String, String> producerRecord = new ProducerRecord<>(
+                                record.topic(),
+                                (String) record.key(),
+                                (String) record.value()
+                        );
+                        kafkaProducer.send(producerRecord);
+                        totalMessagesProcessed++;
+                    }
+
+                    // Commit the records
+                    Map<String, Object> offset = new HashMap<>();
+                    for (SourceRecord record : records) {
+                        offset.put(record.sourcePartition().toString(), record.sourceOffset());
+                    }
+                    task.commit();
+
+                    log.info("Produced {} messages to Kafka (total: {})", records.size(), totalMessagesProcessed);
+                } else {
+                    // No more messages, give it a brief pause before next poll
+                    Thread.sleep(100);
+                }
+
+                pollAttempts++;
+
+                // Check if we have messages in SQS to continue polling
+                ReceiveMessageResponse response = sqsClient.receiveMessage(ReceiveMessageRequest.builder()
+                        .queueUrl(queueUrl)
+                        .maxNumberOfMessages(1)
+                        .waitTimeSeconds(0)
+                        .build());
+
+                if (response.messages().isEmpty() && (records == null || records.isEmpty())) {
+                    log.info("No more messages in SQS and no records from last poll, stopping");
+                    break;
+                }
+            }
+
+            kafkaProducer.flush();
+            log.info("Connector processing complete. Total messages processed: {}", totalMessagesProcessed);
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while processing messages", e);
+        } finally {
+            // Stop the task and connector
+            task.stop();
+            connector.stop();
+        }
     }
 
     private List<ConsumerRecord<String, String>> consumeMessagesFromKafka(int expectedCount, Duration timeout) {
