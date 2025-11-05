@@ -2,6 +2,7 @@ package io.connect.sqs;
 
 import io.connect.sqs.aws.SqsClient;
 import io.connect.sqs.config.SqsSourceConnectorConfig;
+import io.connect.sqs.converter.MessageConverter;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.source.SourceRecord;
 import org.junit.jupiter.api.BeforeEach;
@@ -92,23 +93,31 @@ class SqsSourceTaskTest {
 
     @Test
     void shouldHandleMessageConversionFailure() throws Exception {
-        TestableTask testTask = new TestableTask(sqsClient);
+        // Create a mock converter that throws an exception
+        MessageConverter mockConverter = mock(MessageConverter.class);
+        TestableTask testTask = new TestableTask(sqsClient, mockConverter);
         testTask.start(props);
 
-        // Create message with invalid format to trigger conversion error
-        List<Message> messages = List.of(
-                Message.builder()
-                        .messageId("invalid-msg")
-                        .body(null) // This might cause conversion issues
-                        .build()
-        );
+        // Create test message
+        Message message = Message.builder()
+                .messageId("test-msg-1")
+                .body("test body")
+                .build();
+        List<Message> messages = List.of(message);
         when(sqsClient.receiveMessages()).thenReturn(messages);
 
-        // Should handle gracefully
+        // Make converter throw exception
+        when(mockConverter.convert(any(), any()))
+                .thenThrow(new RuntimeException("Conversion failed"));
+
+        // Should handle gracefully and return null/empty
         List<SourceRecord> records = testTask.poll();
 
-        // Depending on error handling, might return empty or null
+        // Should return null or empty list when all messages fail conversion
         assertThat(records == null || records.isEmpty()).isTrue();
+
+        // Verify the failed message was handled
+        verify(sqsClient, times(1)).deleteMessages(anyList());
     }
 
     @Test
@@ -256,21 +265,31 @@ class SqsSourceTaskTest {
      */
     private static class TestableTask extends SqsSourceTask {
         private final SqsClient mockSqsClient;
+        private final MessageConverter mockConverter;
 
         TestableTask(SqsClient mockSqsClient) {
+            this(mockSqsClient, null);
+        }
+
+        TestableTask(SqsClient mockSqsClient, MessageConverter mockConverter) {
             this.mockSqsClient = mockSqsClient;
+            this.mockConverter = mockConverter;
         }
 
         @Override
         public void start(Map<String, String> props) {
             super.start(props);
-            // Use reflection or a protected setter to inject the mock
-            // For now, we'll rely on the actual implementation
-            // In production code, you might want to add a package-private setter
+            // Use reflection to inject mocks
             try {
                 java.lang.reflect.Field field = SqsSourceTask.class.getDeclaredField("sqsClient");
                 field.setAccessible(true);
                 field.set(this, mockSqsClient);
+
+                if (mockConverter != null) {
+                    field = SqsSourceTask.class.getDeclaredField("messageConverter");
+                    field.setAccessible(true);
+                    field.set(this, mockConverter);
+                }
             } catch (Exception e) {
                 throw new RuntimeException("Failed to inject mock", e);
             }
