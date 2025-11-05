@@ -23,14 +23,17 @@ FROM confluentinc/cp-kafka-connect:7.5.0
 LABEL maintainer="your-email@example.com"
 LABEL description="Kafka Connect SQS Source Connector"
 
-# Copy the connector JAR and dependencies
-COPY --from=builder /build/target/kafka-connect-sqs-source-1.0.0-SNAPSHOT-package.zip /tmp/
+# Create plugin directory
+RUN mkdir -p /usr/share/java/kafka-connect-sqs
 
-# Extract connector package to plugin path using jar command (available in Java runtime)
-RUN mkdir -p /usr/share/java/kafka-connect-sqs && \
-    cd /usr/share/java/kafka-connect-sqs && \
-    jar xf /tmp/kafka-connect-sqs-source-1.0.0-SNAPSHOT-package.zip && \
-    rm /tmp/kafka-connect-sqs-source-1.0.0-SNAPSHOT-package.zip
+# Copy and extract connector package in one layer
+COPY --from=builder /build/target/kafka-connect-sqs-source-1.0.0-SNAPSHOT-package.zip \
+    /usr/share/java/kafka-connect-sqs/
+
+# Extract using jar command and clean up
+RUN cd /usr/share/java/kafka-connect-sqs && \
+    jar xf kafka-connect-sqs-source-1.0.0-SNAPSHOT-package.zip && \
+    rm -f kafka-connect-sqs-source-1.0.0-SNAPSHOT-package.zip
 
 # Set plugin path
 ENV CONNECT_PLUGIN_PATH="/usr/share/java,/usr/share/confluent-hub-components"
