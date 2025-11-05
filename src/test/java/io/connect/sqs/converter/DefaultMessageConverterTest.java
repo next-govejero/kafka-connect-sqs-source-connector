@@ -159,9 +159,10 @@ class DefaultMessageConverterTest {
 
         SourceRecord record = converter.convert(sqsMessage, config);
 
-        assertThat(record.sourcePartition()).containsEntry("queue_url",
-                "https://sqs.us-east-1.amazonaws.com/123456789012/test-queue");
-        assertThat(record.sourceOffset()).containsEntry("message_id", "test-message-id");
+        assertThat(record.sourcePartition())
+                .containsEntry("queue_url", (Object) "https://sqs.us-east-1.amazonaws.com/123456789012/test-queue");
+        assertThat(record.sourceOffset())
+                .containsEntry("message_id", (Object) "test-message-id");
     }
 
     private Header getHeader(SourceRecord record, String key) {
