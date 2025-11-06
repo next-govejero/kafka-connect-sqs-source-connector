@@ -1,9 +1,12 @@
 # Kafka Connect SQS Source Connector
 
 [![Build Status](https://github.com/next-govejero/kafka-connect-sqs-source-connector/workflows/CI/badge.svg)](https://github.com/next-govejero/kafka-connect-sqs-source-connector/actions)
+[![codecov](https://codecov.io/gh/next-govejero/kafka-connect-sqs-source-connector/branch/main/graph/badge.svg)](https://codecov.io/gh/next-govejero/kafka-connect-sqs-source-connector)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 A production-ready Kafka Connect source connector that streams messages from AWS SQS queues into Apache Kafka topics. Designed for reliable, scalable, and configurable ingestion of SQS messages into Kafka-based data pipelines.
+
+**Test Coverage: ~85%+** with comprehensive unit and integration tests.
 
 ## Features
 
@@ -11,11 +14,12 @@ A production-ready Kafka Connect source connector that streams messages from AWS
 - **Flexible AWS Authentication**: Support for access keys, IAM roles, and STS assume role
 - **SCRAM/SHA-512 Authentication**: Mandatory secure authentication for Kafka connections
 - **Message Batching**: Configurable batch sizes (1-10 messages) for efficient processing
-- **Dead Letter Queue**: Route failed messages to a separate Kafka topic
+- **Dead Letter Queue**: Route failed messages to a separate Kafka topic with full error details (exception class, message, stacktrace) in headers
 - **Message Attributes**: Preserve SQS message attributes as Kafka record headers
 - **Configurable Deletion**: Optional automatic deletion of processed messages from SQS
 - **Metrics & Monitoring**: Built-in metrics and comprehensive logging
 - **Docker Support**: Complete Docker Compose setup for local development and testing
+- **Comprehensive Testing**: 85%+ test coverage with unit, integration, and end-to-end tests
 
 ## Architecture
 

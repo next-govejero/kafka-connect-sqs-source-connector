@@ -4,13 +4,17 @@ import io.connect.sqs.aws.SqsClient;
 import io.connect.sqs.config.SqsSourceConnectorConfig;
 import io.connect.sqs.converter.MessageConverter;
 import io.connect.sqs.util.VersionUtil;
+import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.errors.ConnectException;
+import org.apache.kafka.connect.header.ConnectHeaders;
 import org.apache.kafka.connect.source.SourceRecord;
 import org.apache.kafka.connect.source.SourceTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.sqs.model.Message;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -98,8 +102,13 @@ public class SqsSourceTask extends SourceTask {
                     log.error("Failed to convert SQS message: {}", message.messageId(), e);
                     messagesFailed.incrementAndGet();
 
-                    // Handle failed message
-                    handleFailedMessage(message, e);
+                    // Handle failed message (may create DLQ record)
+                    SourceRecord dlqRecord = handleFailedMessage(message, e);
+                    if (dlqRecord != null) {
+                        records.add(dlqRecord);
+                        // Track DLQ message for deletion too
+                        pendingMessages.put(message.messageId(), message);
+                    }
                 }
             }
 
@@ -180,24 +189,107 @@ public class SqsSourceTask extends SourceTask {
         }
     }
 
-    private void handleFailedMessage(Message message, Exception error) {
+    /**
+     * Handle a failed message by optionally creating a DLQ record.
+     *
+     * @param message The SQS message that failed processing
+     * @param error The exception that occurred
+     * @return A SourceRecord for the DLQ topic if configured, null otherwise
+     */
+    private SourceRecord handleFailedMessage(Message message, Exception error) {
         String dlqTopic = config.getDlqTopic();
+        SourceRecord dlqRecord = null;
 
-        if (dlqTopic != null) {
+        if (dlqTopic != null && !dlqTopic.trim().isEmpty()) {
             log.info("Sending failed message {} to DLQ topic: {}", message.messageId(), dlqTopic);
-            // TODO: Implement DLQ publishing
-            // For now, just log the error
-        }
 
-        // Delete failed message if configured
-        if (config.isSqsDeleteMessages()) {
-            try {
-                sqsClient.deleteMessages(Collections.singletonList(message));
-                log.debug("Deleted failed message {} from SQS", message.messageId());
-            } catch (Exception e) {
-                log.error("Failed to delete failed message from SQS", e);
+            // Create DLQ record with original message and error information
+            dlqRecord = createDlqRecord(message, error, dlqTopic);
+
+        } else {
+            // No DLQ configured, just log and optionally delete
+            log.warn("No DLQ configured for failed message: {}", message.messageId());
+
+            // Delete failed message if configured and no DLQ
+            if (config.isSqsDeleteMessages()) {
+                try {
+                    sqsClient.deleteMessages(Collections.singletonList(message));
+                    log.debug("Deleted failed message {} from SQS", message.messageId());
+                } catch (Exception e) {
+                    log.error("Failed to delete failed message from SQS", e);
+                }
             }
         }
+
+        return dlqRecord;
+    }
+
+    /**
+     * Create a DLQ SourceRecord with the failed message and error information.
+     *
+     * @param message The SQS message that failed
+     * @param error The exception that occurred
+     * @param dlqTopic The DLQ topic name
+     * @return A SourceRecord for the DLQ topic
+     */
+    private SourceRecord createDlqRecord(Message message, Exception error, String dlqTopic) {
+        // Create source partition
+        Map<String, String> sourcePartition = new HashMap<>();
+        sourcePartition.put("queue_url", config.getSqsQueueUrl());
+
+        // Create source offset
+        Map<String, String> sourceOffset = new HashMap<>();
+        sourceOffset.put("message_id", message.messageId());
+        sourceOffset.put("dlq", "true");
+
+        // Create headers with error information
+        ConnectHeaders headers = new ConnectHeaders();
+        headers.addString("sqs.message.id", message.messageId());
+        headers.addString("sqs.queue.url", config.getSqsQueueUrl());
+        headers.addString("error.class", error.getClass().getName());
+        headers.addString("error.message", error.getMessage() != null ? error.getMessage() : "");
+        headers.addString("error.stacktrace", getStackTrace(error));
+        headers.addLong("error.timestamp", System.currentTimeMillis());
+
+        // Add SQS message attributes if present
+        if (message.md5OfBody() != null) {
+            headers.addString("sqs.md5.of.body", message.md5OfBody());
+        }
+
+        // Create the DLQ record with the original message body
+        String key = message.messageId();
+        String value = message.body();
+
+        return new SourceRecord(
+                sourcePartition,
+                sourceOffset,
+                dlqTopic,
+                null, // Let Kafka partition
+                Schema.STRING_SCHEMA,
+                key,
+                Schema.STRING_SCHEMA,
+                value,
+                System.currentTimeMillis(),
+                headers
+        );
+    }
+
+    /**
+     * Get the stack trace from an exception as a string.
+     *
+     * @param error The exception
+     * @return The stack trace as a string
+     */
+    private String getStackTrace(Exception error) {
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        error.printStackTrace(pw);
+        String stackTrace = sw.toString();
+        // Truncate if too long (max 8KB for header value)
+        if (stackTrace.length() > 8000) {
+            stackTrace = stackTrace.substring(0, 8000) + "... (truncated)";
+        }
+        return stackTrace;
     }
 
     private void logMetrics() {

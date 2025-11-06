@@ -121,6 +121,96 @@ class SqsSourceTaskTest {
     }
 
     @Test
+    void shouldSendFailedMessageToDlqWhenConfigured() throws Exception {
+        // Configure DLQ
+        props.put(SqsSourceConnectorConfig.DLQ_TOPIC_CONFIG, "dlq-topic");
+
+        // Create a mock converter that throws an exception
+        MessageConverter mockConverter = mock(MessageConverter.class);
+        TestableTask testTask = new TestableTask(sqsClient, mockConverter);
+        testTask.start(props);
+
+        // Create test message
+        Message message = Message.builder()
+                .messageId("failed-msg-123")
+                .body("test body with failure")
+                .md5OfBody("abc123")
+                .build();
+        List<Message> messages = List.of(message);
+        when(sqsClient.receiveMessages()).thenReturn(messages);
+
+        // Make converter throw exception
+        RuntimeException conversionError = new RuntimeException("Conversion failed");
+        when(mockConverter.convert(any(), any())).thenThrow(conversionError);
+
+        // Poll should return DLQ record
+        List<SourceRecord> records = testTask.poll();
+
+        // Should have one DLQ record
+        assertThat(records).isNotNull().hasSize(1);
+
+        SourceRecord dlqRecord = records.get(0);
+
+        // Verify DLQ record properties
+        assertThat(dlqRecord.topic()).isEqualTo("dlq-topic");
+        assertThat(dlqRecord.key()).isEqualTo("failed-msg-123");
+        assertThat(dlqRecord.value()).isEqualTo("test body with failure");
+
+        // Verify error headers
+        assertThat(dlqRecord.headers()).isNotNull();
+        assertThat(dlqRecord.headers().lastWithName("sqs.message.id")).isNotNull();
+        assertThat(dlqRecord.headers().lastWithName("sqs.message.id").value()).isEqualTo("failed-msg-123");
+
+        assertThat(dlqRecord.headers().lastWithName("error.class")).isNotNull();
+        assertThat(dlqRecord.headers().lastWithName("error.class").value())
+                .isEqualTo("java.lang.RuntimeException");
+
+        assertThat(dlqRecord.headers().lastWithName("error.message")).isNotNull();
+        assertThat(dlqRecord.headers().lastWithName("error.message").value())
+                .isEqualTo("Conversion failed");
+
+        assertThat(dlqRecord.headers().lastWithName("error.stacktrace")).isNotNull();
+        assertThat(dlqRecord.headers().lastWithName("error.timestamp")).isNotNull();
+
+        assertThat(dlqRecord.headers().lastWithName("sqs.md5.of.body")).isNotNull();
+        assertThat(dlqRecord.headers().lastWithName("sqs.md5.of.body").value()).isEqualTo("abc123");
+
+        // Verify message is NOT deleted (will be deleted after DLQ record is committed)
+        verify(sqsClient, never()).deleteMessages(anyList());
+    }
+
+    @Test
+    void shouldDeleteFailedMessageWhenNoDlqConfigured() throws Exception {
+        // No DLQ configured (default)
+
+        // Create a mock converter that throws an exception
+        MessageConverter mockConverter = mock(MessageConverter.class);
+        TestableTask testTask = new TestableTask(sqsClient, mockConverter);
+        testTask.start(props);
+
+        // Create test message
+        Message message = Message.builder()
+                .messageId("failed-msg-456")
+                .body("test body")
+                .build();
+        List<Message> messages = List.of(message);
+        when(sqsClient.receiveMessages()).thenReturn(messages);
+
+        // Make converter throw exception
+        when(mockConverter.convert(any(), any()))
+                .thenThrow(new RuntimeException("Conversion failed"));
+
+        // Poll should return empty
+        List<SourceRecord> records = testTask.poll();
+
+        // Should have no records (no DLQ)
+        assertThat(records == null || records.isEmpty()).isTrue();
+
+        // Verify message was deleted
+        verify(sqsClient, times(1)).deleteMessages(anyList());
+    }
+
+    @Test
     void shouldCommitAndDeleteMessages() throws Exception {
         TestableTask testTask = new TestableTask(sqsClient);
         testTask.start(props);

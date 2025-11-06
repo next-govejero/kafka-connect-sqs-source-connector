@@ -79,11 +79,8 @@ class SqsSourceConnectorIT {
         log.info("Kafka bootstrap servers: {}", kafka.getBootstrapServers());
     }
 
-    // TODO: Add full end-to-end test that:
-    // 1. Creates SQS queue in LocalStack
-    // 2. Starts Kafka Connect with SQS connector
-    // 3. Sends messages to SQS
-    // 4. Verifies messages appear in Kafka topic
+    // Note: Full end-to-end tests are implemented in SqsToKafkaE2EIT.java
+    // which validates the complete flow: SQS → Connector → Kafka
 
     private SqsClient createSqsClient() {
         return SqsClient.builder()
