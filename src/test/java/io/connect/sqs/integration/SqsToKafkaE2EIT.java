@@ -330,14 +330,19 @@ class SqsToKafkaE2EIT {
         try {
             // Poll for messages and produce to Kafka
             int pollAttempts = 0;
-            int maxPollAttempts = 30; // Max attempts to poll
+            int maxPollAttempts = 50; // Max attempts to poll (enough for large batches)
             int totalMessagesProcessed = 0;
+            int consecutiveEmptyPolls = 0;
+            int maxConsecutiveEmptyPolls = 5; // Stop after 5 consecutive empty polls
+
+            log.info("Starting message processing loop...");
 
             while (pollAttempts < maxPollAttempts) {
                 List<SourceRecord> records = task.poll();
 
                 if (records != null && !records.isEmpty()) {
-                    log.info("Polled {} records from connector", records.size());
+                    log.info("Polled {} records from connector (attempt {})", records.size(), pollAttempts + 1);
+                    consecutiveEmptyPolls = 0; // Reset counter
 
                     // Produce records to Kafka
                     for (SourceRecord record : records) {
@@ -359,27 +364,25 @@ class SqsToKafkaE2EIT {
 
                     log.info("Produced {} messages to Kafka (total: {})", records.size(), totalMessagesProcessed);
                 } else {
-                    // No more messages, give it a brief pause before next poll
-                    Thread.sleep(100);
+                    // No messages in this poll
+                    consecutiveEmptyPolls++;
+                    log.debug("Empty poll (consecutive: {}/{})", consecutiveEmptyPolls, maxConsecutiveEmptyPolls);
+
+                    if (consecutiveEmptyPolls >= maxConsecutiveEmptyPolls) {
+                        log.info("Received {} consecutive empty polls, stopping processing", consecutiveEmptyPolls);
+                        break;
+                    }
+
+                    // Brief pause before next poll
+                    Thread.sleep(200);
                 }
 
                 pollAttempts++;
-
-                // Check if we have messages in SQS to continue polling
-                ReceiveMessageResponse response = sqsClient.receiveMessage(ReceiveMessageRequest.builder()
-                        .queueUrl(queueUrl)
-                        .maxNumberOfMessages(1)
-                        .waitTimeSeconds(0)
-                        .build());
-
-                if (response.messages().isEmpty() && (records == null || records.isEmpty())) {
-                    log.info("No more messages in SQS and no records from last poll, stopping");
-                    break;
-                }
             }
 
             kafkaProducer.flush();
-            log.info("Connector processing complete. Total messages processed: {}", totalMessagesProcessed);
+            log.info("Connector processing complete. Total messages processed: {} (poll attempts: {})",
+                    totalMessagesProcessed, pollAttempts);
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
