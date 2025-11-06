@@ -394,7 +394,6 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 For issues and questions:
 - [GitHub Issues](https://github.com/next-govejero/kafka-connect-sqs-source-connector/issues)
-- [Discussions](https://github.com/next-govejero/kafka-connect-sqs-source-connector/discussions)
 
 ## Acknowledgments
 
