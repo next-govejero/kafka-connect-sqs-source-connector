@@ -34,7 +34,7 @@
         <junit.version>5.10.1</junit.version>
         <mockito.version>5.7.0</mockito.version>
         <assertj.version>3.24.2</assertj.version>
-        <testcontainers.version>1.19.3</testcontainers.version>
+        <testcontainers.version>1.21.3</testcontainers.version>
 
         <!-- Plugin Versions -->
         <maven.compiler.plugin.version>3.11.0</maven.compiler.plugin.version>
