@@ -14,6 +14,7 @@ import software.amazon.awssdk.services.sqs.model.DeleteMessageBatchRequest;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageBatchRequestEntry;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageBatchResponse;
 import software.amazon.awssdk.services.sqs.model.Message;
+import software.amazon.awssdk.services.sqs.model.MessageSystemAttributeName;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageResponse;
 import software.amazon.awssdk.services.sts.StsClient;
@@ -21,6 +22,7 @@ import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider
 import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -63,6 +65,11 @@ public class SqsClient implements AutoCloseable {
         this.awsSqsClient = builder.build();
 
         log.info("SQS Client initialized for region: {}, queue: {}", region, queueUrl);
+
+        // Log FIFO queue detection
+        if (config.isFifoQueue()) {
+            log.info("FIFO queue detected, will request FIFO-specific attributes");
+        }
     }
 
     /**
@@ -80,6 +87,23 @@ public class SqsClient implements AutoCloseable {
             if (config.isSqsMessageAttributesEnabled()) {
                 requestBuilder.messageAttributeNames("All");
             }
+
+            // Request system attributes including FIFO-specific ones
+            List<MessageSystemAttributeName> systemAttributes = new ArrayList<>(Arrays.asList(
+                    MessageSystemAttributeName.SENT_TIMESTAMP,
+                    MessageSystemAttributeName.APPROXIMATE_RECEIVE_COUNT,
+                    MessageSystemAttributeName.APPROXIMATE_FIRST_RECEIVE_TIMESTAMP
+            ));
+
+            // Add FIFO-specific attributes if it's a FIFO queue
+            if (config.isFifoQueue()) {
+                systemAttributes.add(MessageSystemAttributeName.MESSAGE_GROUP_ID);
+                systemAttributes.add(MessageSystemAttributeName.MESSAGE_DEDUPLICATION_ID);
+                systemAttributes.add(MessageSystemAttributeName.SEQUENCE_NUMBER);
+                log.debug("Requesting FIFO-specific system attributes");
+            }
+
+            requestBuilder.messageSystemAttributeNames(systemAttributes);
 
             ReceiveMessageRequest request = requestBuilder.build();
             ReceiveMessageResponse response = awsSqsClient.receiveMessage(request);

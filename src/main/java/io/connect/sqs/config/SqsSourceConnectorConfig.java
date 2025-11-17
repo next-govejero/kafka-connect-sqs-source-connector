@@ -99,6 +99,23 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
     private static final String RETRY_BACKOFF_MS_DOC = "Backoff time in milliseconds between retries";
     private static final long RETRY_BACKOFF_MS_DEFAULT = 1000L;
 
+    // FIFO Queue Configuration
+    public static final String SQS_FIFO_QUEUE_CONFIG = "sqs.fifo.queue";
+    private static final String SQS_FIFO_QUEUE_DOC = "Enable FIFO queue support. When true, preserves message ordering using MessageGroupId as Kafka partition key";
+    private static final boolean SQS_FIFO_QUEUE_DEFAULT = false;
+
+    public static final String SQS_FIFO_AUTO_DETECT_CONFIG = "sqs.fifo.auto.detect";
+    private static final String SQS_FIFO_AUTO_DETECT_DOC = "Automatically detect FIFO queue based on .fifo suffix in queue URL";
+    private static final boolean SQS_FIFO_AUTO_DETECT_DEFAULT = true;
+
+    public static final String SQS_FIFO_DEDUPLICATION_ENABLED_CONFIG = "sqs.fifo.deduplication.enabled";
+    private static final String SQS_FIFO_DEDUPLICATION_ENABLED_DOC = "Enable message deduplication tracking for FIFO queues to prevent duplicate processing";
+    private static final boolean SQS_FIFO_DEDUPLICATION_ENABLED_DEFAULT = true;
+
+    public static final String SQS_FIFO_DEDUPLICATION_WINDOW_MS_CONFIG = "sqs.fifo.deduplication.window.ms";
+    private static final String SQS_FIFO_DEDUPLICATION_WINDOW_MS_DOC = "Time window in milliseconds to track message deduplication IDs (default: 5 minutes)";
+    private static final long SQS_FIFO_DEDUPLICATION_WINDOW_MS_DEFAULT = 300000L;
+
     // Polling Configuration
     public static final String POLL_INTERVAL_MS_CONFIG = "poll.interval.ms";
     private static final String POLL_INTERVAL_MS_DOC = "Interval in milliseconds between SQS polls";
@@ -409,6 +426,59 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
                 "Retry Backoff (ms)"
         );
 
+        // FIFO Queue Group
+        final String fifoGroup = "FIFO Queue";
+        int fifoGroupOrder = 0;
+
+        configDef.define(
+                SQS_FIFO_QUEUE_CONFIG,
+                Type.BOOLEAN,
+                SQS_FIFO_QUEUE_DEFAULT,
+                Importance.MEDIUM,
+                SQS_FIFO_QUEUE_DOC,
+                fifoGroup,
+                ++fifoGroupOrder,
+                Width.SHORT,
+                "FIFO Queue Enabled"
+        );
+
+        configDef.define(
+                SQS_FIFO_AUTO_DETECT_CONFIG,
+                Type.BOOLEAN,
+                SQS_FIFO_AUTO_DETECT_DEFAULT,
+                Importance.LOW,
+                SQS_FIFO_AUTO_DETECT_DOC,
+                fifoGroup,
+                ++fifoGroupOrder,
+                Width.SHORT,
+                "FIFO Auto Detect"
+        );
+
+        configDef.define(
+                SQS_FIFO_DEDUPLICATION_ENABLED_CONFIG,
+                Type.BOOLEAN,
+                SQS_FIFO_DEDUPLICATION_ENABLED_DEFAULT,
+                Importance.MEDIUM,
+                SQS_FIFO_DEDUPLICATION_ENABLED_DOC,
+                fifoGroup,
+                ++fifoGroupOrder,
+                Width.SHORT,
+                "FIFO Deduplication Enabled"
+        );
+
+        configDef.define(
+                SQS_FIFO_DEDUPLICATION_WINDOW_MS_CONFIG,
+                Type.LONG,
+                SQS_FIFO_DEDUPLICATION_WINDOW_MS_DEFAULT,
+                ConfigDef.Range.atLeast(0),
+                Importance.LOW,
+                SQS_FIFO_DEDUPLICATION_WINDOW_MS_DOC,
+                fifoGroup,
+                ++fifoGroupOrder,
+                Width.MEDIUM,
+                "FIFO Deduplication Window (ms)"
+        );
+
         // Polling Group
         final String pollingGroup = "Polling";
         int pollingGroupOrder = 0;
@@ -570,6 +640,43 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
 
     public long getRetryBackoffMs() {
         return getLong(RETRY_BACKOFF_MS_CONFIG);
+    }
+
+    public boolean isSqsFifoQueueEnabled() {
+        return getBoolean(SQS_FIFO_QUEUE_CONFIG);
+    }
+
+    public boolean isSqsFifoAutoDetectEnabled() {
+        return getBoolean(SQS_FIFO_AUTO_DETECT_CONFIG);
+    }
+
+    public boolean isSqsFifoDeduplicationEnabled() {
+        return getBoolean(SQS_FIFO_DEDUPLICATION_ENABLED_CONFIG);
+    }
+
+    public long getSqsFifoDeduplicationWindowMs() {
+        return getLong(SQS_FIFO_DEDUPLICATION_WINDOW_MS_CONFIG);
+    }
+
+    /**
+     * Determines if the queue is a FIFO queue based on configuration or auto-detection.
+     * Auto-detection checks if queue URL ends with .fifo suffix.
+     *
+     * @return true if the queue is a FIFO queue
+     */
+    public boolean isFifoQueue() {
+        // If explicitly enabled, return true
+        if (isSqsFifoQueueEnabled()) {
+            return true;
+        }
+
+        // If auto-detect is enabled, check the queue URL
+        if (isSqsFifoAutoDetectEnabled()) {
+            String queueUrl = getSqsQueueUrl();
+            return queueUrl != null && queueUrl.endsWith(".fifo");
+        }
+
+        return false;
     }
 
     public long getPollIntervalMs() {

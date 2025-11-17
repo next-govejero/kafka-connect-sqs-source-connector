@@ -167,6 +167,142 @@ class DefaultMessageConverterTest {
         assertThat(record.sourceOffset().get("message_id")).isEqualTo("test-message-id");
     }
 
+    @Test
+    void shouldUseMessageGroupIdAsKeyForFifoQueue() {
+        // Configure FIFO queue
+        Map<String, String> configProps = getFifoTestConfig();
+        SqsSourceConnectorConfig fifoConfig = new SqsSourceConnectorConfig(configProps);
+
+        Map<String, String> attributes = new HashMap<>();
+        attributes.put("MessageGroupId", "order-123");
+        attributes.put("MessageDeduplicationId", "dedup-abc");
+        attributes.put("SequenceNumber", "100");
+
+        Message sqsMessage = Message.builder()
+                .messageId("fifo-message-id")
+                .body("fifo message body")
+                .attributesWithStrings(attributes)
+                .build();
+
+        SourceRecord record = converter.convert(sqsMessage, fifoConfig);
+
+        // Key should be MessageGroupId for FIFO queues to preserve ordering
+        assertThat(record.key()).isEqualTo("order-123");
+        assertThat(record.value()).isEqualTo("fifo message body");
+    }
+
+    @Test
+    void shouldIncludeFifoSpecificHeaders() {
+        Map<String, String> configProps = getFifoTestConfig();
+        SqsSourceConnectorConfig fifoConfig = new SqsSourceConnectorConfig(configProps);
+
+        Map<String, String> attributes = new HashMap<>();
+        attributes.put("MessageGroupId", "order-123");
+        attributes.put("MessageDeduplicationId", "dedup-abc");
+        attributes.put("SequenceNumber", "100");
+
+        Message sqsMessage = Message.builder()
+                .messageId("fifo-message-id")
+                .body("fifo message body")
+                .attributesWithStrings(attributes)
+                .build();
+
+        SourceRecord record = converter.convert(sqsMessage, fifoConfig);
+
+        Header messageGroupHeader = getHeader(record, "sqs.message.group.id");
+        assertThat(messageGroupHeader).isNotNull();
+        assertThat(messageGroupHeader.value()).isEqualTo("order-123");
+
+        Header deduplicationHeader = getHeader(record, "sqs.message.deduplication.id");
+        assertThat(deduplicationHeader).isNotNull();
+        assertThat(deduplicationHeader.value()).isEqualTo("dedup-abc");
+
+        Header sequenceHeader = getHeader(record, "sqs.sequence.number");
+        assertThat(sequenceHeader).isNotNull();
+        assertThat(sequenceHeader.value()).isEqualTo("100");
+    }
+
+    @Test
+    void shouldFallbackToMessageIdWhenMessageGroupIdMissing() {
+        Map<String, String> configProps = getFifoTestConfig();
+        SqsSourceConnectorConfig fifoConfig = new SqsSourceConnectorConfig(configProps);
+
+        Message sqsMessage = Message.builder()
+                .messageId("fifo-message-id")
+                .body("fifo message body")
+                .build();
+
+        SourceRecord record = converter.convert(sqsMessage, fifoConfig);
+
+        // Should fallback to message ID when MessageGroupId is not available
+        assertThat(record.key()).isEqualTo("fifo-message-id");
+    }
+
+    @Test
+    void shouldAutoDetectFifoQueueFromUrl() {
+        // Config with .fifo suffix in queue URL
+        Map<String, String> configProps = getTestConfig();
+        configProps.put("sqs.queue.url", "https://sqs.us-east-1.amazonaws.com/123456789012/test-queue.fifo");
+        SqsSourceConnectorConfig autoDetectConfig = new SqsSourceConnectorConfig(configProps);
+
+        assertThat(autoDetectConfig.isFifoQueue()).isTrue();
+
+        Map<String, String> attributes = new HashMap<>();
+        attributes.put("MessageGroupId", "auto-detected-group");
+
+        Message sqsMessage = Message.builder()
+                .messageId("fifo-message-id")
+                .body("fifo message body")
+                .attributesWithStrings(attributes)
+                .build();
+
+        SourceRecord record = converter.convert(sqsMessage, autoDetectConfig);
+
+        // Should use MessageGroupId as key due to auto-detection
+        assertThat(record.key()).isEqualTo("auto-detected-group");
+    }
+
+    @Test
+    void shouldNotUseMessageGroupIdForStandardQueue() {
+        // Standard queue (not FIFO)
+        Map<String, String> attributes = new HashMap<>();
+        attributes.put("MessageGroupId", "should-not-be-used");
+
+        Message sqsMessage = Message.builder()
+                .messageId("standard-message-id")
+                .body("standard message body")
+                .attributesWithStrings(attributes)
+                .build();
+
+        SourceRecord record = converter.convert(sqsMessage, config);
+
+        // Key should be message ID for standard queues
+        assertThat(record.key()).isEqualTo("standard-message-id");
+    }
+
+    @Test
+    void shouldPreserveOrderingWithinMessageGroup() {
+        Map<String, String> configProps = getFifoTestConfig();
+        SqsSourceConnectorConfig fifoConfig = new SqsSourceConnectorConfig(configProps);
+
+        // All messages with same MessageGroupId should have same key
+        // This ensures they go to the same Kafka partition
+        for (int i = 1; i <= 3; i++) {
+            Map<String, String> attributes = new HashMap<>();
+            attributes.put("MessageGroupId", "order-group-1");
+            attributes.put("SequenceNumber", String.valueOf(i * 100));
+
+            Message sqsMessage = Message.builder()
+                    .messageId("msg-" + i)
+                    .body("message " + i)
+                    .attributesWithStrings(attributes)
+                    .build();
+
+            SourceRecord record = converter.convert(sqsMessage, fifoConfig);
+            assertThat(record.key()).isEqualTo("order-group-1");
+        }
+    }
+
     private Header getHeader(SourceRecord record, String key) {
         for (Header header : record.headers()) {
             if (header.key().equals(key)) {
@@ -186,4 +322,12 @@ class DefaultMessageConverterTest {
                 "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"test\" password=\"test\";");
         return config;
     }
+
+    private Map<String, String> getFifoTestConfig() {
+        Map<String, String> config = getTestConfig();
+        config.put("sqs.queue.url", "https://sqs.us-east-1.amazonaws.com/123456789012/test-queue.fifo");
+        config.put("sqs.fifo.queue", "true");
+        return config;
+    }
 }
+

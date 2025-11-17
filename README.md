@@ -11,6 +11,8 @@ A production-ready Kafka Connect source connector that streams messages from AWS
 ## Features
 
 - **Reliable Message Processing**: Long polling support with configurable visibility timeouts
+- **FIFO Queue Support**: Full support for SQS FIFO queues with ordering preservation and deduplication
+- **Retry with Exponential Backoff**: Active retry mechanism with jitter to prevent thundering herd
 - **Flexible AWS Authentication**: Support for access keys, IAM roles, and STS assume role
 - **SCRAM/SHA-512 Authentication**: Mandatory secure authentication for Kafka connections
 - **Message Batching**: Configurable batch sizes (1-10 messages) for efficient processing
@@ -144,6 +146,15 @@ connect-standalone.sh config/sqs-source-connector-standalone.properties \
 | `max.retries` | Max retries for failed messages | No | `3` |
 | `retry.backoff.ms` | Backoff between retries (ms) | No | `1000` |
 
+### FIFO Queue Configuration
+
+| Property | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `sqs.fifo.queue` | Enable FIFO queue support | No | `false` |
+| `sqs.fifo.auto.detect` | Auto-detect FIFO from queue URL (.fifo suffix) | No | `true` |
+| `sqs.fifo.deduplication.enabled` | Enable deduplication tracking | No | `true` |
+| `sqs.fifo.deduplication.window.ms` | Deduplication tracking window (ms) | No | `300000` |
+
 ### Polling Configuration
 
 | Property | Description | Required | Default |
@@ -251,7 +262,7 @@ Integration tests use Testcontainers to spin up LocalStack (SQS) and Kafka.
 
 The connector converts SQS messages to Kafka records with the following format:
 
-- **Key**: SQS Message ID (String)
+- **Key**: SQS Message ID (or MessageGroupId for FIFO queues)
 - **Value**: SQS Message Body (String)
 - **Headers**: SQS metadata and attributes
 
@@ -264,6 +275,129 @@ The connector converts SQS messages to Kafka records with the following format:
 - `sqs.approximate.receive.count`: Number of times message was received
 - `sqs.message.attribute.*`: Custom message attributes (if enabled)
 
+#### FIFO Queue Headers (when using FIFO queues)
+
+- `sqs.message.group.id`: Message group ID for ordering
+- `sqs.message.deduplication.id`: Deduplication ID
+- `sqs.sequence.number`: FIFO sequence number
+
+#### DLQ Headers (for failed messages)
+
+- `error.class`: Exception class name
+- `error.message`: Exception message
+- `error.stacktrace`: Full stack trace
+- `error.timestamp`: When the error occurred
+- `retry.count`: Number of retry attempts made
+- `retry.max`: Maximum retries configured
+- `retry.exhausted`: Whether all retries were exhausted
+
+## FIFO Queue Support
+
+The connector fully supports AWS SQS FIFO queues with the following features:
+
+### Ordering Preservation
+
+FIFO queues preserve message ordering within message groups. The connector uses the `MessageGroupId` as the Kafka record key, ensuring all messages from the same group are routed to the same Kafka partition. This maintains the ordering guarantees in Kafka.
+
+### Auto-Detection
+
+The connector can automatically detect FIFO queues based on the `.fifo` suffix in the queue URL:
+
+```properties
+# Auto-detection (default)
+sqs.queue.url=https://sqs.us-east-1.amazonaws.com/123456789012/my-queue.fifo
+sqs.fifo.auto.detect=true
+
+# Or explicit configuration
+sqs.fifo.queue=true
+```
+
+### Deduplication
+
+FIFO queues provide exactly-once processing through deduplication. The connector tracks `MessageDeduplicationId` to prevent processing duplicate messages:
+
+```properties
+sqs.fifo.deduplication.enabled=true
+sqs.fifo.deduplication.window.ms=300000  # 5 minutes
+```
+
+### Example FIFO Configuration
+
+```properties
+name=sqs-fifo-source-connector
+connector.class=io.connect.sqs.SqsSourceConnector
+tasks.max=1
+
+# AWS Configuration
+aws.region=us-east-1
+sqs.queue.url=https://sqs.us-east-1.amazonaws.com/123456789012/orders.fifo
+
+# FIFO Configuration
+sqs.fifo.queue=true
+sqs.fifo.deduplication.enabled=true
+sqs.fifo.deduplication.window.ms=300000
+
+# Kafka Configuration
+kafka.topic=orders
+sasl.mechanism=SCRAM-SHA-512
+security.protocol=SASL_SSL
+sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required \
+  username="your-username" \
+  password="your-password";
+```
+
+## Retry and Exponential Backoff
+
+The connector implements an active retry mechanism with exponential backoff and jitter to improve resilience and reduce messages routed to the Dead Letter Queue.
+
+### How It Works
+
+When message processing fails, the connector:
+1. Records the failure and calculates a backoff period
+2. Schedules the message for retry after the backoff expires
+3. Allows SQS visibility timeout to redeliver the message
+4. Retries until `max.retries` is exhausted, then routes to DLQ
+
+### Exponential Backoff Formula
+
+```
+backoff = baseBackoffMs * (2 ^ (attempt - 1)) * (1 ± jitter)
+```
+
+Example with `retry.backoff.ms=1000`:
+- Attempt 1: ~1000ms (1s)
+- Attempt 2: ~2000ms (2s)
+- Attempt 3: ~4000ms (4s)
+
+### Jitter to Prevent Thundering Herd
+
+The connector applies 30% jitter by default to randomize retry times. This prevents multiple failed messages from retrying simultaneously, which could overwhelm downstream services.
+
+### Configuration
+
+```properties
+# Maximum retry attempts before routing to DLQ
+max.retries=3
+
+# Base backoff time in milliseconds
+retry.backoff.ms=1000
+```
+
+### Retry Headers in DLQ
+
+When a message exhausts all retries and is routed to the DLQ, these headers are included:
+- `retry.count`: Number of retry attempts made
+- `retry.max`: Maximum retries configured
+- `retry.exhausted`: Boolean indicating all retries were exhausted
+
+### Example Scenario
+
+With `max.retries=3` and `retry.backoff.ms=1000`:
+1. Message fails → scheduled retry after ~1s
+2. Retry 1 fails → scheduled retry after ~2s
+3. Retry 2 fails → scheduled retry after ~4s
+4. Retry 3 fails → routed to DLQ with `retry.count=3`, `retry.exhausted=true`
+
 ## Monitoring & Metrics
 
 The connector logs key metrics:
@@ -272,7 +406,10 @@ The connector logs key metrics:
 - Messages sent to Kafka
 - Messages deleted from SQS
 - Failed messages
+- Messages retried (when using retry mechanism)
+- Messages deduplicated (when using FIFO deduplication)
 - Pending messages
+- Messages in retry (awaiting retry)
 
 Enable DEBUG logging for detailed information:
 
