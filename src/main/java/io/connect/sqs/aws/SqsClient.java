@@ -103,7 +103,7 @@ public class SqsClient implements AutoCloseable {
                 log.debug("Requesting FIFO-specific system attributes");
             }
 
-            requestBuilder.attributeNames(systemAttributes);
+            requestBuilder.messageSystemAttributeNames(systemAttributes);
 
             ReceiveMessageRequest request = requestBuilder.build();
             ReceiveMessageResponse response = awsSqsClient.receiveMessage(request);
