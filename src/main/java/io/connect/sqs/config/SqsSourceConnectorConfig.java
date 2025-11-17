@@ -140,6 +140,41 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
     private static final String MESSAGE_CONVERTER_CLASS_DOC = "Class for converting SQS messages to Kafka records";
     private static final String MESSAGE_CONVERTER_CLASS_DEFAULT = "io.connect.sqs.converter.DefaultMessageConverter";
 
+    // Schema Registry Configuration
+    public static final String SCHEMA_REGISTRY_URL_CONFIG = "schema.registry.url";
+    private static final String SCHEMA_REGISTRY_URL_DOC = "URL of the Confluent Schema Registry. Required when using Avro, Protobuf, or JSON Schema converters";
+
+    public static final String VALUE_SCHEMA_ID_CONFIG = "value.schema.id";
+    private static final String VALUE_SCHEMA_ID_DOC = "Schema ID to use for value serialization. If not specified, schema will be registered automatically based on message structure";
+
+    public static final String KEY_SCHEMA_ID_CONFIG = "key.schema.id";
+    private static final String KEY_SCHEMA_ID_DOC = "Schema ID to use for key serialization. Optional, defaults to string schema";
+
+    public static final String SCHEMA_REGISTRY_BASIC_AUTH_CREDENTIALS_SOURCE_CONFIG = "schema.registry.basic.auth.credentials.source";
+    private static final String SCHEMA_REGISTRY_BASIC_AUTH_CREDENTIALS_SOURCE_DOC = "Source of credentials for Schema Registry basic auth (USER_INFO, SASL_INHERIT)";
+    private static final String SCHEMA_REGISTRY_BASIC_AUTH_CREDENTIALS_SOURCE_DEFAULT = "USER_INFO";
+
+    public static final String SCHEMA_REGISTRY_BASIC_AUTH_USER_INFO_CONFIG = "schema.registry.basic.auth.user.info";
+    private static final String SCHEMA_REGISTRY_BASIC_AUTH_USER_INFO_DOC = "User info for Schema Registry basic auth in format 'username:password'";
+
+    public static final String SCHEMA_REGISTRY_SSL_TRUSTSTORE_LOCATION_CONFIG = "schema.registry.ssl.truststore.location";
+    private static final String SCHEMA_REGISTRY_SSL_TRUSTSTORE_LOCATION_DOC = "Location of the truststore for Schema Registry SSL connections";
+
+    public static final String SCHEMA_REGISTRY_SSL_TRUSTSTORE_PASSWORD_CONFIG = "schema.registry.ssl.truststore.password";
+    private static final String SCHEMA_REGISTRY_SSL_TRUSTSTORE_PASSWORD_DOC = "Password for the Schema Registry SSL truststore";
+
+    public static final String SCHEMA_AUTO_REGISTER_CONFIG = "schema.auto.register";
+    private static final String SCHEMA_AUTO_REGISTER_DOC = "Enable automatic schema registration with Schema Registry";
+    private static final boolean SCHEMA_AUTO_REGISTER_DEFAULT = true;
+
+    public static final String SCHEMA_USE_LATEST_VERSION_CONFIG = "schema.use.latest.version";
+    private static final String SCHEMA_USE_LATEST_VERSION_DOC = "Use latest schema version from registry instead of specific ID";
+    private static final boolean SCHEMA_USE_LATEST_VERSION_DEFAULT = false;
+
+    public static final String SCHEMA_SUBJECT_NAME_STRATEGY_CONFIG = "schema.subject.name.strategy";
+    private static final String SCHEMA_SUBJECT_NAME_STRATEGY_DOC = "Strategy for naming schemas in Schema Registry (TopicNameStrategy, RecordNameStrategy, TopicRecordNameStrategy)";
+    private static final String SCHEMA_SUBJECT_NAME_STRATEGY_DEFAULT = "io.confluent.kafka.serializers.subject.TopicNameStrategy";
+
     public static final ConfigDef CONFIG_DEF = createConfigDef();
 
     private static ConfigDef createConfigDef() {
@@ -563,6 +598,130 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
                 "Message Converter Class"
         );
 
+        // Schema Registry Group
+        final String schemaGroup = "Schema Registry";
+        int schemaGroupOrder = 0;
+
+        configDef.define(
+                SCHEMA_REGISTRY_URL_CONFIG,
+                Type.STRING,
+                null,
+                Importance.MEDIUM,
+                SCHEMA_REGISTRY_URL_DOC,
+                schemaGroup,
+                ++schemaGroupOrder,
+                Width.LONG,
+                "Schema Registry URL"
+        );
+
+        configDef.define(
+                VALUE_SCHEMA_ID_CONFIG,
+                Type.INT,
+                null,
+                Importance.MEDIUM,
+                VALUE_SCHEMA_ID_DOC,
+                schemaGroup,
+                ++schemaGroupOrder,
+                Width.SHORT,
+                "Value Schema ID"
+        );
+
+        configDef.define(
+                KEY_SCHEMA_ID_CONFIG,
+                Type.INT,
+                null,
+                Importance.LOW,
+                KEY_SCHEMA_ID_DOC,
+                schemaGroup,
+                ++schemaGroupOrder,
+                Width.SHORT,
+                "Key Schema ID"
+        );
+
+        configDef.define(
+                SCHEMA_REGISTRY_BASIC_AUTH_CREDENTIALS_SOURCE_CONFIG,
+                Type.STRING,
+                SCHEMA_REGISTRY_BASIC_AUTH_CREDENTIALS_SOURCE_DEFAULT,
+                Importance.LOW,
+                SCHEMA_REGISTRY_BASIC_AUTH_CREDENTIALS_SOURCE_DOC,
+                schemaGroup,
+                ++schemaGroupOrder,
+                Width.MEDIUM,
+                "Schema Registry Auth Source"
+        );
+
+        configDef.define(
+                SCHEMA_REGISTRY_BASIC_AUTH_USER_INFO_CONFIG,
+                Type.PASSWORD,
+                null,
+                Importance.LOW,
+                SCHEMA_REGISTRY_BASIC_AUTH_USER_INFO_DOC,
+                schemaGroup,
+                ++schemaGroupOrder,
+                Width.LONG,
+                "Schema Registry User Info"
+        );
+
+        configDef.define(
+                SCHEMA_REGISTRY_SSL_TRUSTSTORE_LOCATION_CONFIG,
+                Type.STRING,
+                null,
+                Importance.LOW,
+                SCHEMA_REGISTRY_SSL_TRUSTSTORE_LOCATION_DOC,
+                schemaGroup,
+                ++schemaGroupOrder,
+                Width.LONG,
+                "Schema Registry SSL Truststore Location"
+        );
+
+        configDef.define(
+                SCHEMA_REGISTRY_SSL_TRUSTSTORE_PASSWORD_CONFIG,
+                Type.PASSWORD,
+                null,
+                Importance.LOW,
+                SCHEMA_REGISTRY_SSL_TRUSTSTORE_PASSWORD_DOC,
+                schemaGroup,
+                ++schemaGroupOrder,
+                Width.MEDIUM,
+                "Schema Registry SSL Truststore Password"
+        );
+
+        configDef.define(
+                SCHEMA_AUTO_REGISTER_CONFIG,
+                Type.BOOLEAN,
+                SCHEMA_AUTO_REGISTER_DEFAULT,
+                Importance.LOW,
+                SCHEMA_AUTO_REGISTER_DOC,
+                schemaGroup,
+                ++schemaGroupOrder,
+                Width.SHORT,
+                "Auto Register Schema"
+        );
+
+        configDef.define(
+                SCHEMA_USE_LATEST_VERSION_CONFIG,
+                Type.BOOLEAN,
+                SCHEMA_USE_LATEST_VERSION_DEFAULT,
+                Importance.LOW,
+                SCHEMA_USE_LATEST_VERSION_DOC,
+                schemaGroup,
+                ++schemaGroupOrder,
+                Width.SHORT,
+                "Use Latest Schema Version"
+        );
+
+        configDef.define(
+                SCHEMA_SUBJECT_NAME_STRATEGY_CONFIG,
+                Type.STRING,
+                SCHEMA_SUBJECT_NAME_STRATEGY_DEFAULT,
+                Importance.LOW,
+                SCHEMA_SUBJECT_NAME_STRATEGY_DOC,
+                schemaGroup,
+                ++schemaGroupOrder,
+                Width.LONG,
+                "Subject Name Strategy"
+        );
+
         return configDef;
     }
 
@@ -832,4 +991,50 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
     public String getMessageConverterClass() {
         return getString(MESSAGE_CONVERTER_CLASS_CONFIG);
     }
+
+    // Schema Registry getters
+    public String getSchemaRegistryUrl() {
+        return getString(SCHEMA_REGISTRY_URL_CONFIG);
+    }
+
+    public Integer getValueSchemaId() {
+        return getInt(VALUE_SCHEMA_ID_CONFIG);
+    }
+
+    public Integer getKeySchemaId() {
+        return getInt(KEY_SCHEMA_ID_CONFIG);
+    }
+
+    public String getSchemaRegistryBasicAuthCredentialsSource() {
+        return getString(SCHEMA_REGISTRY_BASIC_AUTH_CREDENTIALS_SOURCE_CONFIG);
+    }
+
+    public String getSchemaRegistryBasicAuthUserInfo() {
+        return getPassword(SCHEMA_REGISTRY_BASIC_AUTH_USER_INFO_CONFIG) != null
+            ? getPassword(SCHEMA_REGISTRY_BASIC_AUTH_USER_INFO_CONFIG).value()
+            : null;
+    }
+
+    public String getSchemaRegistrySslTruststoreLocation() {
+        return getString(SCHEMA_REGISTRY_SSL_TRUSTSTORE_LOCATION_CONFIG);
+    }
+
+    public String getSchemaRegistrySslTruststorePassword() {
+        return getPassword(SCHEMA_REGISTRY_SSL_TRUSTSTORE_PASSWORD_CONFIG) != null
+            ? getPassword(SCHEMA_REGISTRY_SSL_TRUSTSTORE_PASSWORD_CONFIG).value()
+            : null;
+    }
+
+    public boolean isSchemaAutoRegister() {
+        return getBoolean(SCHEMA_AUTO_REGISTER_CONFIG);
+    }
+
+    public boolean isSchemaUseLatestVersion() {
+        return getBoolean(SCHEMA_USE_LATEST_VERSION_CONFIG);
+    }
+
+    public String getSchemaSubjectNameStrategy() {
+        return getString(SCHEMA_SUBJECT_NAME_STRATEGY_CONFIG);
+    }
 }
+

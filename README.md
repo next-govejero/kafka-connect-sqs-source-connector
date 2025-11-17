@@ -10,6 +10,7 @@ A production-ready Kafka Connect source connector that streams messages from AWS
 
 ## Features
 
+- **Schema Registry Support**: Enterprise-grade schema validation with Avro, Protobuf, and JSON Schema converters
 - **Multi-Queue Support**: Consume from multiple SQS queues with automatic task distribution for parallel processing
 - **Message Filtering**: Client-side filtering with support for exact match, prefix, exists, and numeric conditions
 - **Reliable Message Processing**: Long polling support with configurable visibility timeouts
@@ -182,6 +183,39 @@ connect-standalone.sh config/sqs-source-connector-standalone.properties \
 | Property | Description | Required | Default |
 |----------|-------------|----------|---------|
 | `message.converter.class` | Message converter class | No | `io.connect.sqs.converter.DefaultMessageConverter` |
+
+### Schema Registry Configuration
+
+For enterprise schema validation, the connector supports Avro, Protobuf, and JSON Schema converters with Confluent Schema Registry integration.
+
+| Property | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `schema.registry.url` | Schema Registry URL | Yes (for schema converters) | - |
+| `value.schema.id` | Specific schema ID for values | No | Auto-inferred |
+| `key.schema.id` | Specific schema ID for keys | No | String schema |
+| `schema.auto.register` | Auto-register schemas | No | `true` |
+| `schema.use.latest.version` | Use latest schema version | No | `false` |
+| `schema.subject.name.strategy` | Subject naming strategy | No | `TopicNameStrategy` |
+| `schema.registry.basic.auth.user.info` | Basic auth credentials | No | - |
+
+**Available Message Converters:**
+
+- `io.connect.sqs.converter.DefaultMessageConverter` - Plain string (default)
+- `io.connect.sqs.converter.AvroMessageConverter` - Apache Avro with Schema Registry
+- `io.connect.sqs.converter.ProtobufMessageConverter` - Protocol Buffers with Schema Registry
+- `io.connect.sqs.converter.JsonSchemaMessageConverter` - JSON Schema with Schema Registry
+
+**Example with Avro:**
+
+```json
+{
+  "message.converter.class": "io.connect.sqs.converter.AvroMessageConverter",
+  "schema.registry.url": "http://schema-registry:8081",
+  "schema.auto.register": "true"
+}
+```
+
+For comprehensive Schema Registry documentation including examples, schema evolution, and best practices, see [Schema Registry Documentation](docs/SCHEMA_REGISTRY.md).
 
 ## SCRAM Authentication
 
