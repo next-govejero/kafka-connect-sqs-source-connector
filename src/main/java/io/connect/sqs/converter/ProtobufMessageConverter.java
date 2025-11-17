@@ -18,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.sqs.model.Message;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
