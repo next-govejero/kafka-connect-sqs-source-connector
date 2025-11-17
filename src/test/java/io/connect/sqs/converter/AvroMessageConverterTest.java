@@ -1,6 +1,5 @@
 package io.connect.sqs.converter;
 
-import io.confluent.kafka.schemaregistry.client.MockSchemaRegistryClient;
 import io.connect.sqs.config.SqsSourceConnectorConfig;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.Struct;
@@ -21,12 +20,10 @@ class AvroMessageConverterTest {
 
     private AvroMessageConverter converter;
     private SqsSourceConnectorConfig config;
-    private MockSchemaRegistryClient mockSchemaRegistryClient;
 
     @BeforeEach
     void setUp() {
         converter = new AvroMessageConverter();
-        mockSchemaRegistryClient = new MockSchemaRegistryClient();
         config = new SqsSourceConnectorConfig(getTestConfig());
     }
 

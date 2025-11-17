@@ -2,8 +2,6 @@ package io.connect.sqs.converter;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.confluent.kafka.schemaregistry.avro.AvroSchema;
 import io.connect.sqs.config.SqsSourceConnectorConfig;
 import org.apache.avro.Schema;
@@ -281,7 +279,11 @@ public class AvroMessageConverter extends SchemaRegistryConverter {
             case RECORD:
                 return jsonToAvro(node, actualSchema);
             case BYTES:
-                return node.binaryValue();
+                try {
+                    return node.binaryValue();
+                } catch (IOException e) {
+                    return node.asText().getBytes();
+                }
             default:
                 return node.asText();
         }
