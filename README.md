@@ -346,6 +346,58 @@ sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule require
   password="your-password";
 ```
 
+## Retry and Exponential Backoff
+
+The connector implements an active retry mechanism with exponential backoff and jitter to improve resilience and reduce messages routed to the Dead Letter Queue.
+
+### How It Works
+
+When message processing fails, the connector:
+1. Records the failure and calculates a backoff period
+2. Schedules the message for retry after the backoff expires
+3. Allows SQS visibility timeout to redeliver the message
+4. Retries until `max.retries` is exhausted, then routes to DLQ
+
+### Exponential Backoff Formula
+
+```
+backoff = baseBackoffMs * (2 ^ (attempt - 1)) * (1 ± jitter)
+```
+
+Example with `retry.backoff.ms=1000`:
+- Attempt 1: ~1000ms (1s)
+- Attempt 2: ~2000ms (2s)
+- Attempt 3: ~4000ms (4s)
+
+### Jitter to Prevent Thundering Herd
+
+The connector applies 30% jitter by default to randomize retry times. This prevents multiple failed messages from retrying simultaneously, which could overwhelm downstream services.
+
+### Configuration
+
+```properties
+# Maximum retry attempts before routing to DLQ
+max.retries=3
+
+# Base backoff time in milliseconds
+retry.backoff.ms=1000
+```
+
+### Retry Headers in DLQ
+
+When a message exhausts all retries and is routed to the DLQ, these headers are included:
+- `retry.count`: Number of retry attempts made
+- `retry.max`: Maximum retries configured
+- `retry.exhausted`: Boolean indicating all retries were exhausted
+
+### Example Scenario
+
+With `max.retries=3` and `retry.backoff.ms=1000`:
+1. Message fails → scheduled retry after ~1s
+2. Retry 1 fails → scheduled retry after ~2s
+3. Retry 2 fails → scheduled retry after ~4s
+4. Retry 3 fails → routed to DLQ with `retry.count=3`, `retry.exhausted=true`
+
 ## Monitoring & Metrics
 
 The connector logs key metrics:
@@ -354,7 +406,10 @@ The connector logs key metrics:
 - Messages sent to Kafka
 - Messages deleted from SQS
 - Failed messages
+- Messages retried (when using retry mechanism)
+- Messages deduplicated (when using FIFO deduplication)
 - Pending messages
+- Messages in retry (awaiting retry)
 
 Enable DEBUG logging for detailed information:
 
