@@ -85,7 +85,15 @@ public class SqsClient implements AutoCloseable {
 
             // Include message attributes if enabled
             if (config.isSqsMessageAttributesEnabled()) {
-                requestBuilder.messageAttributeNames("All");
+                List<String> attributeFilterNames = config.getMessageAttributeFilterNames();
+                if (!attributeFilterNames.isEmpty()) {
+                    // Request only specific attributes for reduced network traffic
+                    requestBuilder.messageAttributeNames(attributeFilterNames);
+                    log.debug("Requesting specific message attributes: {}", attributeFilterNames);
+                } else {
+                    // Request all attributes
+                    requestBuilder.messageAttributeNames("All");
+                }
             }
 
             // Request system attributes including FIFO-specific ones

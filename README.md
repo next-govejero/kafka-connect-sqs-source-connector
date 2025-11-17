@@ -10,6 +10,8 @@ A production-ready Kafka Connect source connector that streams messages from AWS
 
 ## Features
 
+- **Multi-Queue Support**: Consume from multiple SQS queues with automatic task distribution for parallel processing
+- **Message Filtering**: Client-side filtering with support for exact match, prefix, exists, and numeric conditions
 - **Reliable Message Processing**: Long polling support with configurable visibility timeouts
 - **FIFO Queue Support**: Full support for SQS FIFO queues with ordering preservation and deduplication
 - **Retry with Exponential Backoff**: Active retry mechanism with jitter to prevent thundering herd
@@ -26,16 +28,25 @@ A production-ready Kafka Connect source connector that streams messages from AWS
 ## Architecture
 
 ```
-┌─────────────┐          ┌──────────────────┐          ┌───────────────┐
-│   AWS SQS   │ ────────>│  Kafka Connect   │ ────────>│  Kafka Topic  │
-│   Queue     │  Polling │  SQS Connector   │ Produce  │               │
-└─────────────┘          └──────────────────┘          └───────────────┘
-                                   │
-                                   │ Failed Messages
-                                   ▼
-                         ┌─────────────────┐
-                         │  DLQ Topic      │
-                         └─────────────────┘
+                         Multi-Queue Support (Parallel Processing)
+                         ┌──────────────────────────────────┐
+                         │                                  │
+┌─────────────┐          │  ┌──────────────────┐          │  ┌───────────────┐
+│   AWS SQS   │ ────────>│  │  Task 1          │ ────────>│  │  Kafka Topic  │
+│   Queue 1   │  Polling │  │  (Queue 1)       │ Produce  │  │               │
+└─────────────┘          │  └──────────────────┘          │  └───────────────┘
+                         │                                  │
+┌─────────────┐          │  ┌──────────────────┐          │  ┌───────────────┐
+│   AWS SQS   │ ────────>│  │  Task 2          │ ────────>│  │  Kafka Topic  │
+│   Queue 2   │  Polling │  │  (Queue 2)       │ Produce  │  │               │
+└─────────────┘          │  └──────────────────┘          │  └───────────────┘
+                         │          │                      │
+                         │          │ Failed Messages      │
+                         └──────────┼──────────────────────┘
+                                    ▼
+                          ┌─────────────────┐
+                          │  DLQ Topic      │
+                          └─────────────────┘
 ```
 
 ## Prerequisites
@@ -121,12 +132,17 @@ connect-standalone.sh config/sqs-source-connector-standalone.properties \
 
 | Property | Description | Required | Default |
 |----------|-------------|----------|---------|
-| `sqs.queue.url` | SQS queue URL | **Yes** | - |
+| `sqs.queue.url` | SQS queue URL (single queue mode) | **Yes*** | - |
+| `sqs.queue.urls` | Comma-separated list of SQS queue URLs (multi-queue mode) | **Yes*** | - |
 | `sqs.max.messages` | Max messages per batch (1-10) | No | `10` |
 | `sqs.wait.time.seconds` | Long polling wait time (0-20) | No | `10` |
 | `sqs.visibility.timeout.seconds` | Message visibility timeout | No | `30` |
 | `sqs.message.attributes.enabled` | Include message attributes | No | `true` |
+| `sqs.message.attribute.filter.names` | Comma-separated list of specific attributes to retrieve | No | All attributes |
+| `sqs.message.filter.policy` | JSON filter policy for message filtering | No | - |
 | `sqs.delete.messages` | Auto-delete after processing | No | `true` |
+
+*Either `sqs.queue.url` OR `sqs.queue.urls` must be provided.
 
 ### Kafka Configuration
 
@@ -345,6 +361,167 @@ sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule require
   username="your-username" \
   password="your-password";
 ```
+
+## Multi-Queue Support
+
+The connector supports consuming from multiple SQS queues simultaneously, with automatic task distribution for parallel processing. This is a major scalability improvement that reduces operational overhead.
+
+### How It Works
+
+When you configure multiple queue URLs, the connector automatically:
+1. Creates one Kafka Connect task per queue
+2. Distributes queues across available tasks
+3. Each task processes its assigned queue independently
+4. All tasks produce to the same Kafka topic
+
+### Configuration
+
+```properties
+name=sqs-multi-queue-connector
+connector.class=io.connect.sqs.SqsSourceConnector
+# Important: Set tasks.max to at least the number of queues
+tasks.max=3
+
+# Multi-queue configuration
+sqs.queue.urls=https://sqs.us-east-1.amazonaws.com/123456789012/orders,\
+https://sqs.us-east-1.amazonaws.com/123456789012/payments,\
+https://sqs.us-east-1.amazonaws.com/123456789012/notifications
+
+# All messages go to the same topic
+kafka.topic=sqs-messages
+
+# AWS and Kafka configuration
+aws.region=us-east-1
+sasl.mechanism=SCRAM-SHA-512
+security.protocol=SASL_SSL
+sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required \
+  username="your-username" \
+  password="your-password";
+```
+
+### Important Notes
+
+- **tasks.max**: Set this to at least the number of queues. If `tasks.max < number of queues`, some queues will not be processed.
+- **Backward Compatibility**: You can still use `sqs.queue.url` for single queue mode.
+- **Load Balancing**: Each queue gets its own task, ensuring parallel processing.
+- **Same Topic**: All messages from all queues are routed to the same Kafka topic.
+
+### Best Practices
+
+1. **Match tasks to queues**: `tasks.max` should equal or exceed the number of queues
+2. **Monitor all queues**: Each task reports metrics independently
+3. **Use similar queue configurations**: All queues should have similar message volume and processing characteristics
+4. **Consider FIFO constraints**: If using FIFO queues, ordering is preserved within each queue, not across queues
+
+## Message Filtering
+
+The connector supports client-side message filtering based on SQS message attributes. This reduces unnecessary processing by filtering out messages that don't match specific criteria.
+
+### How It Works
+
+1. Messages are received from SQS with their attributes
+2. The filter processor evaluates each message against the filter policy
+3. Messages that don't match are immediately deleted from SQS
+4. Only matching messages are converted to Kafka records
+
+### Filter Policy Syntax
+
+The filter policy uses a JSON format similar to SNS subscription filters:
+
+```json
+{
+  "attribute_name": ["value1", "value2", {"prefix": "prod-"}, {"exists": true}]
+}
+```
+
+### Supported Filter Conditions
+
+| Condition | Syntax | Description |
+|-----------|--------|-------------|
+| Exact Match | `["value1", "value2"]` | Matches if attribute equals any value |
+| Prefix Match | `[{"prefix": "prod-"}]` | Matches if attribute starts with prefix |
+| Exists | `[{"exists": true}]` | Matches if attribute exists |
+| Not Exists | `[{"exists": false}]` | Matches if attribute doesn't exist |
+| Numeric Comparison | `[{"numeric": [">=", 100]}]` | Numeric comparisons: `=`, `!=`, `<`, `<=`, `>`, `>=` |
+
+### Filter Logic
+
+- **Within attribute**: OR logic (any condition can match)
+- **Between attributes**: AND logic (all attributes must match)
+
+### Configuration Examples
+
+**Filter by exact message type:**
+```properties
+sqs.message.filter.policy={"Type":["order","payment"]}
+```
+
+**Filter by environment prefix:**
+```properties
+sqs.message.filter.policy={"Environment":[{"prefix":"prod-"}]}
+```
+
+**Require priority attribute:**
+```properties
+sqs.message.filter.policy={"Priority":[{"exists":true}]}
+```
+
+**Complex filter with multiple conditions:**
+```properties
+sqs.message.filter.policy={"Type":["order"],"Priority":["high","urgent"],"Amount":[{"numeric":[">=",100]}]}
+```
+
+**Retrieve only specific attributes (reduces network traffic):**
+```properties
+sqs.message.attribute.filter.names=Type,Priority,Environment
+```
+
+### Complete Filtering Example
+
+```properties
+name=sqs-filtered-connector
+connector.class=io.connect.sqs.SqsSourceConnector
+tasks.max=1
+
+# AWS Configuration
+aws.region=us-east-1
+sqs.queue.url=https://sqs.us-east-1.amazonaws.com/123456789012/events
+
+# Message Filtering
+sqs.message.attributes.enabled=true
+sqs.message.attribute.filter.names=Type,Priority,Region
+sqs.message.filter.policy={"Type":["order","payment"],"Priority":[{"prefix":"high"}],"Region":[{"exists":true}]}
+
+# Kafka Configuration
+kafka.topic=filtered-events
+sasl.mechanism=SCRAM-SHA-512
+security.protocol=SASL_SSL
+sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required \
+  username="your-username" \
+  password="your-password";
+```
+
+### Monitoring Filter Performance
+
+The connector tracks filter statistics:
+- `Messages Filtered Out`: Count of messages that didn't match the filter
+- `Messages Passed Filter`: Count of messages that matched
+
+Enable INFO logging to see these metrics:
+```
+SQS Source Task Metrics:
+  Messages Received: 1000
+  Messages Filtered Out: 750
+  Messages Passed Filter: 250
+```
+
+### Best Practices
+
+1. **Start broad, then narrow**: Begin with a permissive filter and tighten as needed
+2. **Monitor filter rates**: High filter-out rates may indicate inefficient queue usage
+3. **Use attribute name filtering**: Reduces network traffic by only requesting needed attributes
+4. **Test filter policies**: Validate JSON syntax before deploying
+5. **Consider SNS filtering**: For true server-side filtering, use SNS subscription filters before SQS
 
 ## Retry and Exponential Backoff
 

@@ -4,6 +4,7 @@ import io.connect.sqs.aws.SqsClient;
 import io.connect.sqs.config.SqsSourceConnectorConfig;
 import io.connect.sqs.converter.MessageConverter;
 import io.connect.sqs.fifo.DeduplicationTracker;
+import io.connect.sqs.filter.MessageFilterProcessor;
 import io.connect.sqs.retry.RetryDecision;
 import io.connect.sqs.retry.RetryManager;
 import io.connect.sqs.util.VersionUtil;
@@ -39,6 +40,7 @@ public class SqsSourceTask extends SourceTask {
     private MessageConverter messageConverter;
     private RetryManager retryManager;
     private DeduplicationTracker deduplicationTracker;
+    private MessageFilterProcessor messageFilterProcessor;
 
     // Track processed messages for commit
     private final Map<String, Message> pendingMessages = new ConcurrentHashMap<>();
@@ -87,6 +89,14 @@ public class SqsSourceTask extends SourceTask {
                         config.getSqsFifoDeduplicationWindowMs());
             }
 
+            // Initialize message filter processor
+            this.messageFilterProcessor = new MessageFilterProcessor(
+                    config.getMessageFilterPolicy()
+            );
+            if (messageFilterProcessor.hasFilterPolicy()) {
+                log.info("Message filtering enabled with policy: {}", config.getMessageFilterPolicy());
+            }
+
             log.info("SQS Source Task started successfully");
             log.info("Polling from queue: {}", config.getSqsQueueUrl());
             log.info("Publishing to topic: {}", config.getKafkaTopic());
@@ -118,6 +128,35 @@ public class SqsSourceTask extends SourceTask {
 
             messagesReceived.addAndGet(messages.size());
             log.debug("Received {} messages from SQS", messages.size());
+
+            // Apply message filtering if configured
+            List<Message> filteredOutMessages = new ArrayList<>();
+            if (messageFilterProcessor.hasFilterPolicy()) {
+                List<Message> matchingMessages = messageFilterProcessor.filter(messages);
+                // Track filtered-out messages for deletion
+                for (Message msg : messages) {
+                    if (!matchingMessages.contains(msg)) {
+                        filteredOutMessages.add(msg);
+                    }
+                }
+                messages = matchingMessages;
+
+                // Delete filtered-out messages immediately
+                if (config.isSqsDeleteMessages() && !filteredOutMessages.isEmpty()) {
+                    try {
+                        sqsClient.deleteMessages(filteredOutMessages);
+                        messagesDeleted.addAndGet(filteredOutMessages.size());
+                        log.debug("Deleted {} filtered-out messages from SQS", filteredOutMessages.size());
+                    } catch (Exception e) {
+                        log.error("Failed to delete filtered-out messages from SQS", e);
+                    }
+                }
+            }
+
+            if (messages.isEmpty()) {
+                log.trace("All messages were filtered out");
+                return null;
+            }
 
             List<SourceRecord> records = new ArrayList<>();
 
@@ -460,6 +499,10 @@ public class SqsSourceTask extends SourceTask {
         log.info("  Messages In Retry: {}", messagesInRetry.size());
         if (deduplicationTracker != null) {
             log.info("  Deduplication Tracker Size: {}", deduplicationTracker.getTrackedCount());
+        }
+        if (messageFilterProcessor != null && messageFilterProcessor.hasFilterPolicy()) {
+            log.info("  Messages Filtered Out: {}", messageFilterProcessor.getMessagesFiltered());
+            log.info("  Messages Passed Filter: {}", messageFilterProcessor.getMessagesPassed());
         }
     }
 
