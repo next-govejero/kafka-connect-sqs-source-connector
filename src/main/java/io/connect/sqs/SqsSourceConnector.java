@@ -3,6 +3,7 @@ package io.connect.sqs;
 import io.connect.sqs.config.SqsSourceConnectorConfig;
 import io.connect.sqs.util.VersionUtil;
 import org.apache.kafka.common.config.ConfigDef;
+import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.connect.connector.Task;
 import org.apache.kafka.connect.source.SourceConnector;
 import org.slf4j.Logger;
@@ -35,8 +36,17 @@ public class SqsSourceConnector extends SourceConnector {
         this.configProps = props;
         this.config = new SqsSourceConnectorConfig(props);
 
+        List<String> queueUrls = config.getQueueUrls();
+
         log.info("SQS Source Connector configuration:");
-        log.info("  Queue URL: {}", config.getSqsQueueUrl());
+        if (queueUrls.size() > 1) {
+            log.info("  Multi-Queue Mode: {} queues configured", queueUrls.size());
+            for (int i = 0; i < queueUrls.size(); i++) {
+                log.info("    Queue {}: {}", i + 1, queueUrls.get(i));
+            }
+        } else {
+            log.info("  Queue URL: {}", queueUrls.isEmpty() ? "none" : queueUrls.get(0));
+        }
         log.info("  Kafka Topic: {}", config.getKafkaTopic());
         log.info("  Region: {}", config.getAwsRegion());
         log.info("  Max Messages: {}", config.getSqsMaxMessages());
@@ -45,6 +55,10 @@ public class SqsSourceConnector extends SourceConnector {
         log.info("  Delete Messages: {}", config.isSqsDeleteMessages());
         log.info("  SASL Mechanism: {}", config.getSaslMechanism());
         log.info("  Security Protocol: {}", config.getSecurityProtocol());
+
+        if (config.getMessageFilterPolicy() != null) {
+            log.info("  Message Filter Policy: {}", config.getMessageFilterPolicy());
+        }
 
         if (config.getDlqTopic() != null) {
             log.info("  Dead Letter Queue Topic: {}", config.getDlqTopic());
@@ -61,14 +75,64 @@ public class SqsSourceConnector extends SourceConnector {
         log.info("Setting up task configurations for {} max tasks", maxTasks);
 
         List<Map<String, String>> taskConfigs = new ArrayList<>();
+        List<String> queueUrls = config.getQueueUrls();
 
-        // For now, we only support single task per connector instance
-        // to maintain message ordering from a single queue
-        // In future versions, we can support multiple tasks for multiple queues
-        Map<String, String> taskConfig = new HashMap<>(configProps);
-        taskConfigs.add(taskConfig);
+        if (queueUrls.isEmpty()) {
+            throw new ConfigException("No SQS queue URLs configured");
+        }
 
-        log.info("Created {} task configuration(s)", taskConfigs.size());
+        // Multi-queue support: create one task per queue URL
+        // Each task gets its own queue to process, enabling parallel consumption
+        int numQueues = queueUrls.size();
+        int numTasks = Math.min(numQueues, maxTasks);
+
+        if (numTasks < numQueues) {
+            log.warn("maxTasks ({}) is less than number of queues ({}). " +
+                     "Some tasks will process multiple queues.", maxTasks, numQueues);
+        }
+
+        // Distribute queues across tasks
+        // If numTasks >= numQueues: each queue gets its own task
+        // If numTasks < numQueues: queues are distributed (not recommended)
+        if (numTasks >= numQueues) {
+            // Ideal case: one task per queue
+            for (int i = 0; i < numQueues; i++) {
+                Map<String, String> taskConfig = new HashMap<>(configProps);
+                String queueUrl = queueUrls.get(i);
+
+                // Override the queue URL for this specific task
+                taskConfig.put(SqsSourceConnectorConfig.SQS_QUEUE_URL_CONFIG, queueUrl);
+                // Clear the multi-queue config to avoid confusion in the task
+                taskConfig.remove(SqsSourceConnectorConfig.SQS_QUEUE_URLS_CONFIG);
+
+                taskConfigs.add(taskConfig);
+                log.info("Task {} assigned to queue: {}", i, queueUrl);
+            }
+        } else {
+            // Less ideal: distribute queues across available tasks
+            // This scenario should be avoided by ensuring maxTasks >= numQueues
+            for (int i = 0; i < numTasks; i++) {
+                Map<String, String> taskConfig = new HashMap<>(configProps);
+                // Each task gets the queue at its index
+                // Additional queues beyond numTasks will not be processed
+                String queueUrl = queueUrls.get(i);
+                taskConfig.put(SqsSourceConnectorConfig.SQS_QUEUE_URL_CONFIG, queueUrl);
+                taskConfig.remove(SqsSourceConnectorConfig.SQS_QUEUE_URLS_CONFIG);
+
+                taskConfigs.add(taskConfig);
+                log.warn("Task {} assigned to queue: {} (limited by maxTasks)", i, queueUrl);
+            }
+
+            // Log warning about unassigned queues
+            if (numQueues > numTasks) {
+                for (int i = numTasks; i < numQueues; i++) {
+                    log.error("Queue {} is NOT assigned to any task due to maxTasks limit: {}",
+                              i, queueUrls.get(i));
+                }
+            }
+        }
+
+        log.info("Created {} task configuration(s) for {} queue(s)", taskConfigs.size(), numQueues);
         return taskConfigs;
     }
 

@@ -7,7 +7,11 @@ import org.apache.kafka.common.config.ConfigDef.Type;
 import org.apache.kafka.common.config.ConfigDef.Width;
 import org.apache.kafka.common.config.ConfigException;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Configuration for the SQS Source Connector.
@@ -46,7 +50,10 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
 
     // SQS Configuration
     public static final String SQS_QUEUE_URL_CONFIG = "sqs.queue.url";
-    private static final String SQS_QUEUE_URL_DOC = "AWS SQS queue URL to consume messages from";
+    private static final String SQS_QUEUE_URL_DOC = "AWS SQS queue URL to consume messages from. For single queue mode, use this property. For multi-queue mode, use sqs.queue.urls instead.";
+
+    public static final String SQS_QUEUE_URLS_CONFIG = "sqs.queue.urls";
+    private static final String SQS_QUEUE_URLS_DOC = "Comma-separated list of AWS SQS queue URLs to consume from. Each queue gets its own task for parallel processing. Example: https://sqs.us-east-1.amazonaws.com/123456789/queue1,https://sqs.us-east-1.amazonaws.com/123456789/queue2";
 
     public static final String SQS_MAX_MESSAGES_CONFIG = "sqs.max.messages";
     private static final String SQS_MAX_MESSAGES_DOC = "Maximum number of messages to retrieve in a single batch (1-10)";
@@ -67,6 +74,13 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
     public static final String SQS_DELETE_MESSAGES_CONFIG = "sqs.delete.messages";
     private static final String SQS_DELETE_MESSAGES_DOC = "Automatically delete messages from SQS after successful processing";
     private static final boolean SQS_DELETE_MESSAGES_DEFAULT = true;
+
+    // Message Filtering Configuration
+    public static final String SQS_MESSAGE_ATTRIBUTE_FILTER_NAMES_CONFIG = "sqs.message.attribute.filter.names";
+    private static final String SQS_MESSAGE_ATTRIBUTE_FILTER_NAMES_DOC = "Comma-separated list of specific message attribute names to retrieve. If empty, retrieves all attributes when sqs.message.attributes.enabled is true. Example: Type,Priority,Environment";
+
+    public static final String SQS_MESSAGE_FILTER_POLICY_CONFIG = "sqs.message.filter.policy";
+    private static final String SQS_MESSAGE_FILTER_POLICY_DOC = "JSON filter policy to filter messages based on message attributes. Supports 'exact', 'prefix', 'exists' operators. Example: {\"Type\":[\"order\",\"payment\"],\"Environment\":[{\"prefix\":\"prod\"}]}";
 
     // Kafka Configuration
     public static final String KAFKA_TOPIC_CONFIG = "kafka.topic";
@@ -250,12 +264,25 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
         configDef.define(
                 SQS_QUEUE_URL_CONFIG,
                 Type.STRING,
+                null,
                 Importance.HIGH,
                 SQS_QUEUE_URL_DOC,
                 sqsGroup,
                 ++sqsGroupOrder,
                 Width.LONG,
                 "SQS Queue URL"
+        );
+
+        configDef.define(
+                SQS_QUEUE_URLS_CONFIG,
+                Type.STRING,
+                null,
+                Importance.HIGH,
+                SQS_QUEUE_URLS_DOC,
+                sqsGroup,
+                ++sqsGroupOrder,
+                Width.LONG,
+                "SQS Queue URLs"
         );
 
         configDef.define(
@@ -319,6 +346,30 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
                 ++sqsGroupOrder,
                 Width.SHORT,
                 "SQS Delete Messages"
+        );
+
+        configDef.define(
+                SQS_MESSAGE_ATTRIBUTE_FILTER_NAMES_CONFIG,
+                Type.STRING,
+                null,
+                Importance.LOW,
+                SQS_MESSAGE_ATTRIBUTE_FILTER_NAMES_DOC,
+                sqsGroup,
+                ++sqsGroupOrder,
+                Width.LONG,
+                "SQS Message Attribute Filter Names"
+        );
+
+        configDef.define(
+                SQS_MESSAGE_FILTER_POLICY_CONFIG,
+                Type.STRING,
+                null,
+                Importance.LOW,
+                SQS_MESSAGE_FILTER_POLICY_DOC,
+                sqsGroup,
+                ++sqsGroupOrder,
+                Width.LONG,
+                "SQS Message Filter Policy"
         );
 
         // Kafka Group
@@ -533,10 +584,40 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
             );
         }
 
-        // Validate queue URL
+        // Validate queue URL(s) - at least one must be provided
         String queueUrl = getString(SQS_QUEUE_URL_CONFIG);
-        if (queueUrl == null || queueUrl.trim().isEmpty()) {
-            throw new ConfigException(SQS_QUEUE_URL_CONFIG, queueUrl, "SQS queue URL is required");
+        String queueUrls = getString(SQS_QUEUE_URLS_CONFIG);
+
+        boolean hasSingleUrl = queueUrl != null && !queueUrl.trim().isEmpty();
+        boolean hasMultipleUrls = queueUrls != null && !queueUrls.trim().isEmpty();
+
+        if (!hasSingleUrl && !hasMultipleUrls) {
+            throw new ConfigException(SQS_QUEUE_URL_CONFIG, queueUrl,
+                "Either sqs.queue.url or sqs.queue.urls must be provided");
+        }
+
+        // Validate multiple queue URLs format if provided
+        if (hasMultipleUrls) {
+            List<String> urls = getQueueUrls();
+            if (urls.isEmpty()) {
+                throw new ConfigException(SQS_QUEUE_URLS_CONFIG, queueUrls,
+                    "sqs.queue.urls must contain at least one valid URL");
+            }
+            for (String url : urls) {
+                if (!url.startsWith("https://sqs.") && !url.startsWith("http://")) {
+                    throw new ConfigException(SQS_QUEUE_URLS_CONFIG, queueUrls,
+                        "Invalid SQS queue URL format: " + url);
+                }
+            }
+        }
+
+        // Validate message filter policy JSON if provided
+        String filterPolicy = getString(SQS_MESSAGE_FILTER_POLICY_CONFIG);
+        if (filterPolicy != null && !filterPolicy.trim().isEmpty()) {
+            if (!filterPolicy.trim().startsWith("{") || !filterPolicy.trim().endsWith("}")) {
+                throw new ConfigException(SQS_MESSAGE_FILTER_POLICY_CONFIG, filterPolicy,
+                    "Filter policy must be valid JSON object");
+            }
         }
 
         // Validate topic
@@ -586,6 +667,59 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
 
     public String getSqsQueueUrl() {
         return getString(SQS_QUEUE_URL_CONFIG);
+    }
+
+    /**
+     * Gets the list of SQS queue URLs configured for multi-queue mode.
+     * If sqs.queue.urls is not set but sqs.queue.url is set, returns a single-element list.
+     * This provides backward compatibility with single-queue configuration.
+     *
+     * @return List of queue URLs, never null or empty
+     */
+    public List<String> getQueueUrls() {
+        String queueUrls = getString(SQS_QUEUE_URLS_CONFIG);
+        if (queueUrls != null && !queueUrls.trim().isEmpty()) {
+            return Arrays.stream(queueUrls.split(","))
+                    .map(String::trim)
+                    .filter(url -> !url.isEmpty())
+                    .collect(Collectors.toList());
+        }
+
+        // Fallback to single queue URL for backward compatibility
+        String singleUrl = getString(SQS_QUEUE_URL_CONFIG);
+        if (singleUrl != null && !singleUrl.trim().isEmpty()) {
+            List<String> urls = new ArrayList<>();
+            urls.add(singleUrl.trim());
+            return urls;
+        }
+
+        return new ArrayList<>();
+    }
+
+    /**
+     * Gets the list of message attribute names to filter/retrieve.
+     * Returns empty list if not configured, meaning all attributes will be retrieved.
+     *
+     * @return List of attribute names to retrieve, or empty list for all
+     */
+    public List<String> getMessageAttributeFilterNames() {
+        String filterNames = getString(SQS_MESSAGE_ATTRIBUTE_FILTER_NAMES_CONFIG);
+        if (filterNames != null && !filterNames.trim().isEmpty()) {
+            return Arrays.stream(filterNames.split(","))
+                    .map(String::trim)
+                    .filter(name -> !name.isEmpty())
+                    .collect(Collectors.toList());
+        }
+        return new ArrayList<>();
+    }
+
+    /**
+     * Gets the message filter policy JSON string.
+     *
+     * @return Filter policy JSON or null if not configured
+     */
+    public String getMessageFilterPolicy() {
+        return getString(SQS_MESSAGE_FILTER_POLICY_CONFIG);
     }
 
     public int getSqsMaxMessages() {
@@ -661,6 +795,7 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
     /**
      * Determines if the queue is a FIFO queue based on configuration or auto-detection.
      * Auto-detection checks if queue URL ends with .fifo suffix.
+     * In multi-queue mode, checks the first queue URL (assumes all queues are of same type).
      *
      * @return true if the queue is a FIFO queue
      */
@@ -672,8 +807,19 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
 
         // If auto-detect is enabled, check the queue URL
         if (isSqsFifoAutoDetectEnabled()) {
+            // Check single queue URL first
             String queueUrl = getSqsQueueUrl();
-            return queueUrl != null && queueUrl.endsWith(".fifo");
+            if (queueUrl != null && queueUrl.endsWith(".fifo")) {
+                return true;
+            }
+
+            // Check multi-queue URLs
+            List<String> urls = getQueueUrls();
+            if (!urls.isEmpty()) {
+                // In multi-queue mode, all queues should be same type
+                // Check first queue as representative
+                return urls.get(0).endsWith(".fifo");
+            }
         }
 
         return false;
