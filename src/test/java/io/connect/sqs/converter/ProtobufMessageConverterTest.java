@@ -82,7 +82,8 @@ class ProtobufMessageConverterTest {
 
         Object tagsObj = value.get("tags");
         assertThat(tagsObj).isInstanceOf(List.class);
-        List<?> tags = (List<?>) tagsObj;
+        @SuppressWarnings("unchecked")
+        List<String> tags = (List<String>) tagsObj;
         assertThat(tags).containsExactly("tag1", "tag2", "tag3");
     }
 
@@ -245,7 +246,7 @@ class ProtobufMessageConverterTest {
         props.put("kafka.topic", "test-topic");
         props.put("aws.region", "us-east-1");
         props.put("schema.registry.url", "http://localhost:8081");
-        props.put("schema.auto.register", "true");
+        props.put("schema.auto.register", "false");
         return props;
     }
 

@@ -85,7 +85,8 @@ class JsonSchemaMessageConverterTest {
 
         Object productsObj = value.get("products");
         assertThat(productsObj).isInstanceOf(List.class);
-        List<?> products = (List<?>) productsObj;
+        @SuppressWarnings("unchecked")
+        List<String> products = (List<String>) productsObj;
         assertThat(products).containsExactly("laptop", "mouse", "keyboard");
         assertThat(value.get("quantity")).isEqualTo(3L);
     }
@@ -294,7 +295,7 @@ class JsonSchemaMessageConverterTest {
         props.put("kafka.topic", "test-topic");
         props.put("aws.region", "us-east-1");
         props.put("schema.registry.url", "http://localhost:8081");
-        props.put("schema.auto.register", "true");
+        props.put("schema.auto.register", "false");
         return props;
     }
 

@@ -86,7 +86,8 @@ class AvroMessageConverterTest {
 
         Object itemsObj = value.get("items");
         assertThat(itemsObj).isInstanceOf(List.class);
-        List<?> items = (List<?>) itemsObj;
+        @SuppressWarnings("unchecked")
+        List<String> items = (List<String>) itemsObj;
         assertThat(items).containsExactly("apple", "banana", "orange");
         assertThat(value.get("count")).isEqualTo(3);
     }
@@ -250,7 +251,7 @@ class AvroMessageConverterTest {
         props.put("kafka.topic", "test-topic");
         props.put("aws.region", "us-east-1");
         props.put("schema.registry.url", "http://localhost:8081");
-        props.put("schema.auto.register", "true");
+        props.put("schema.auto.register", "false");
         return props;
     }
 

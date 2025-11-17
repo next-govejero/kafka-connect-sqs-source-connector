@@ -321,6 +321,22 @@ public class AvroMessageConverter extends SchemaRegistryConverter {
             if (nonNullSchema != null) {
                 org.apache.kafka.connect.data.Schema connectSchema = avroFieldToConnectSchema(nonNullSchema);
                 if (hasNull) {
+                    // Preserve full schema information for complex types
+                    if (connectSchema.type() == org.apache.kafka.connect.data.Schema.Type.ARRAY) {
+                        return org.apache.kafka.connect.data.SchemaBuilder
+                                .array(connectSchema.valueSchema())
+                                .optional()
+                                .build();
+                    } else if (connectSchema.type() == org.apache.kafka.connect.data.Schema.Type.STRUCT) {
+                        org.apache.kafka.connect.data.SchemaBuilder structBuilder =
+                                org.apache.kafka.connect.data.SchemaBuilder.struct()
+                                        .name(connectSchema.name())
+                                        .optional();
+                        for (org.apache.kafka.connect.data.Field field : connectSchema.fields()) {
+                            structBuilder.field(field.name(), field.schema());
+                        }
+                        return structBuilder.build();
+                    }
                     return org.apache.kafka.connect.data.SchemaBuilder.type(connectSchema.type()).optional().build();
                 }
                 return connectSchema;

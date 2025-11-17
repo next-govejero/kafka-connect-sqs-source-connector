@@ -68,13 +68,13 @@ public abstract class SchemaRegistryConverter implements MessageConverter {
         schemaRegistryConfigs.put("schema.registry.url", schemaRegistryUrl);
 
         // Add authentication if configured
-        String authSource = config.getSchemaRegistryBasicAuthCredentialsSource();
-        if (authSource != null && !authSource.isEmpty()) {
-            schemaRegistryConfigs.put("basic.auth.credentials.source", authSource);
-        }
-
         String authUserInfo = config.getSchemaRegistryBasicAuthUserInfo();
         if (authUserInfo != null && !authUserInfo.isEmpty()) {
+            // Only set credentials source if user info is actually provided
+            String authSource = config.getSchemaRegistryBasicAuthCredentialsSource();
+            if (authSource != null && !authSource.isEmpty()) {
+                schemaRegistryConfigs.put("basic.auth.credentials.source", authSource);
+            }
             schemaRegistryConfigs.put("basic.auth.user.info", authUserInfo);
         }
 
