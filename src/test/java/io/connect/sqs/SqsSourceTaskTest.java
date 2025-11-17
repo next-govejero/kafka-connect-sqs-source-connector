@@ -360,9 +360,15 @@ class SqsSourceTaskTest {
         List<SourceRecord> records1 = testTask.poll();
         assertThat(records1 == null || records1.isEmpty()).isTrue();
 
+        // Clear backoff to simulate time passing
+        testTask.getRetryManager().setNextRetryTime("retry-msg-1", 0);
+
         // Second attempt - should retry
         List<SourceRecord> records2 = testTask.poll();
         assertThat(records2 == null || records2.isEmpty()).isTrue();
+
+        // Clear backoff to simulate time passing
+        testTask.getRetryManager().setNextRetryTime("retry-msg-1", 0);
 
         // Third attempt - should route to DLQ
         List<SourceRecord> records3 = testTask.poll();
@@ -401,8 +407,12 @@ class SqsSourceTaskTest {
         // Verify retry is tracked
         assertThat(testTask.getRetryManager().getRetryCount("clear-retry-msg")).isEqualTo(1);
 
+        // Clear backoff to simulate time passing
+        testTask.getRetryManager().setNextRetryTime("clear-retry-msg", 0);
+
         // Second attempt succeeds
         SourceRecord mockRecord = mock(SourceRecord.class);
+        reset(mockConverter);
         when(mockConverter.convert(any(), any())).thenReturn(mockRecord);
 
         List<SourceRecord> records = testTask.poll();
