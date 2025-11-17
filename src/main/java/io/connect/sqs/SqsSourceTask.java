@@ -3,6 +3,7 @@ package io.connect.sqs;
 import io.connect.sqs.aws.SqsClient;
 import io.connect.sqs.config.SqsSourceConnectorConfig;
 import io.connect.sqs.converter.MessageConverter;
+import io.connect.sqs.fifo.DeduplicationTracker;
 import io.connect.sqs.retry.RetryDecision;
 import io.connect.sqs.retry.RetryManager;
 import io.connect.sqs.util.VersionUtil;
@@ -37,6 +38,7 @@ public class SqsSourceTask extends SourceTask {
     private SqsClient sqsClient;
     private MessageConverter messageConverter;
     private RetryManager retryManager;
+    private DeduplicationTracker deduplicationTracker;
 
     // Track processed messages for commit
     private final Map<String, Message> pendingMessages = new ConcurrentHashMap<>();
@@ -50,6 +52,7 @@ public class SqsSourceTask extends SourceTask {
     private final AtomicLong messagesDeleted = new AtomicLong(0);
     private final AtomicLong messagesFailed = new AtomicLong(0);
     private final AtomicLong messagesRetried = new AtomicLong(0);
+    private final AtomicLong messagesDeduplicated = new AtomicLong(0);
 
     @Override
     public String version() {
@@ -75,11 +78,24 @@ public class SqsSourceTask extends SourceTask {
                     config.getRetryBackoffMs()
             );
 
+            // Initialize FIFO deduplication tracker if enabled
+            if (config.isFifoQueue() && config.isSqsFifoDeduplicationEnabled()) {
+                this.deduplicationTracker = new DeduplicationTracker(
+                        config.getSqsFifoDeduplicationWindowMs()
+                );
+                log.info("FIFO deduplication tracking enabled with window: {}ms",
+                        config.getSqsFifoDeduplicationWindowMs());
+            }
+
             log.info("SQS Source Task started successfully");
             log.info("Polling from queue: {}", config.getSqsQueueUrl());
             log.info("Publishing to topic: {}", config.getKafkaTopic());
             log.info("Retry configuration: maxRetries={}, baseBackoffMs={}",
                     config.getMaxRetries(), config.getRetryBackoffMs());
+
+            if (config.isFifoQueue()) {
+                log.info("FIFO queue mode enabled - ordering will be preserved using MessageGroupId");
+            }
 
         } catch (Exception e) {
             log.error("Failed to start SQS Source Task", e);
@@ -113,6 +129,16 @@ public class SqsSourceTask extends SourceTask {
                         log.debug("Message {} still in backoff, {}ms remaining",
                                 message.messageId(), remainingMs);
                         // Don't process yet, let SQS visibility timeout handle redelivery
+                        continue;
+                    }
+
+                    // Check for FIFO duplicates
+                    if (shouldSkipAsDuplicate(message)) {
+                        messagesDeduplicated.incrementAndGet();
+                        // Delete duplicate message from SQS
+                        if (config.isSqsDeleteMessages()) {
+                            pendingMessages.put(message.messageId(), message);
+                        }
                         continue;
                     }
 
@@ -207,6 +233,9 @@ public class SqsSourceTask extends SourceTask {
         if (retryManager != null) {
             retryManager.clear();
         }
+        if (deduplicationTracker != null) {
+            deduplicationTracker.clear();
+        }
         log.info("SQS Source Task stopped");
     }
 
@@ -219,6 +248,32 @@ public class SqsSourceTask extends SourceTask {
             log.error("Failed to create message converter, using default", e);
             throw new ConnectException("Failed to create message converter", e);
         }
+    }
+
+    /**
+     * Checks if a FIFO message should be skipped as a duplicate.
+     *
+     * @param message The SQS message
+     * @return true if the message is a duplicate and should be skipped
+     */
+    private boolean shouldSkipAsDuplicate(Message message) {
+        if (deduplicationTracker == null) {
+            return false;
+        }
+
+        Map<String, String> attributes = message.attributesAsStrings();
+        if (attributes == null) {
+            return false;
+        }
+
+        String deduplicationId = attributes.get("MessageDeduplicationId");
+        if (deduplicationId != null && deduplicationTracker.isDuplicate(deduplicationId)) {
+            log.info("Skipping duplicate FIFO message {} with deduplication ID: {}",
+                    message.messageId(), deduplicationId);
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -400,8 +455,12 @@ public class SqsSourceTask extends SourceTask {
         log.info("  Messages Deleted: {}", messagesDeleted.get());
         log.info("  Messages Failed: {}", messagesFailed.get());
         log.info("  Messages Retried: {}", messagesRetried.get());
+        log.info("  Messages Deduplicated: {}", messagesDeduplicated.get());
         log.info("  Pending Messages: {}", pendingMessages.size());
         log.info("  Messages In Retry: {}", messagesInRetry.size());
+        if (deduplicationTracker != null) {
+            log.info("  Deduplication Tracker Size: {}", deduplicationTracker.getTrackedCount());
+        }
     }
 
     /**

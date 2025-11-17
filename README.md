@@ -11,6 +11,8 @@ A production-ready Kafka Connect source connector that streams messages from AWS
 ## Features
 
 - **Reliable Message Processing**: Long polling support with configurable visibility timeouts
+- **FIFO Queue Support**: Full support for SQS FIFO queues with ordering preservation and deduplication
+- **Retry with Exponential Backoff**: Active retry mechanism with jitter to prevent thundering herd
 - **Flexible AWS Authentication**: Support for access keys, IAM roles, and STS assume role
 - **SCRAM/SHA-512 Authentication**: Mandatory secure authentication for Kafka connections
 - **Message Batching**: Configurable batch sizes (1-10 messages) for efficient processing
@@ -144,6 +146,15 @@ connect-standalone.sh config/sqs-source-connector-standalone.properties \
 | `max.retries` | Max retries for failed messages | No | `3` |
 | `retry.backoff.ms` | Backoff between retries (ms) | No | `1000` |
 
+### FIFO Queue Configuration
+
+| Property | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `sqs.fifo.queue` | Enable FIFO queue support | No | `false` |
+| `sqs.fifo.auto.detect` | Auto-detect FIFO from queue URL (.fifo suffix) | No | `true` |
+| `sqs.fifo.deduplication.enabled` | Enable deduplication tracking | No | `true` |
+| `sqs.fifo.deduplication.window.ms` | Deduplication tracking window (ms) | No | `300000` |
+
 ### Polling Configuration
 
 | Property | Description | Required | Default |
@@ -251,7 +262,7 @@ Integration tests use Testcontainers to spin up LocalStack (SQS) and Kafka.
 
 The connector converts SQS messages to Kafka records with the following format:
 
-- **Key**: SQS Message ID (String)
+- **Key**: SQS Message ID (or MessageGroupId for FIFO queues)
 - **Value**: SQS Message Body (String)
 - **Headers**: SQS metadata and attributes
 
@@ -263,6 +274,77 @@ The connector converts SQS messages to Kafka records with the following format:
 - `sqs.sent.timestamp`: When message was sent to SQS
 - `sqs.approximate.receive.count`: Number of times message was received
 - `sqs.message.attribute.*`: Custom message attributes (if enabled)
+
+#### FIFO Queue Headers (when using FIFO queues)
+
+- `sqs.message.group.id`: Message group ID for ordering
+- `sqs.message.deduplication.id`: Deduplication ID
+- `sqs.sequence.number`: FIFO sequence number
+
+#### DLQ Headers (for failed messages)
+
+- `error.class`: Exception class name
+- `error.message`: Exception message
+- `error.stacktrace`: Full stack trace
+- `error.timestamp`: When the error occurred
+- `retry.count`: Number of retry attempts made
+- `retry.max`: Maximum retries configured
+- `retry.exhausted`: Whether all retries were exhausted
+
+## FIFO Queue Support
+
+The connector fully supports AWS SQS FIFO queues with the following features:
+
+### Ordering Preservation
+
+FIFO queues preserve message ordering within message groups. The connector uses the `MessageGroupId` as the Kafka record key, ensuring all messages from the same group are routed to the same Kafka partition. This maintains the ordering guarantees in Kafka.
+
+### Auto-Detection
+
+The connector can automatically detect FIFO queues based on the `.fifo` suffix in the queue URL:
+
+```properties
+# Auto-detection (default)
+sqs.queue.url=https://sqs.us-east-1.amazonaws.com/123456789012/my-queue.fifo
+sqs.fifo.auto.detect=true
+
+# Or explicit configuration
+sqs.fifo.queue=true
+```
+
+### Deduplication
+
+FIFO queues provide exactly-once processing through deduplication. The connector tracks `MessageDeduplicationId` to prevent processing duplicate messages:
+
+```properties
+sqs.fifo.deduplication.enabled=true
+sqs.fifo.deduplication.window.ms=300000  # 5 minutes
+```
+
+### Example FIFO Configuration
+
+```properties
+name=sqs-fifo-source-connector
+connector.class=io.connect.sqs.SqsSourceConnector
+tasks.max=1
+
+# AWS Configuration
+aws.region=us-east-1
+sqs.queue.url=https://sqs.us-east-1.amazonaws.com/123456789012/orders.fifo
+
+# FIFO Configuration
+sqs.fifo.queue=true
+sqs.fifo.deduplication.enabled=true
+sqs.fifo.deduplication.window.ms=300000
+
+# Kafka Configuration
+kafka.topic=orders
+sasl.mechanism=SCRAM-SHA-512
+security.protocol=SASL_SSL
+sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required \
+  username="your-username" \
+  password="your-password";
+```
 
 ## Monitoring & Metrics
 

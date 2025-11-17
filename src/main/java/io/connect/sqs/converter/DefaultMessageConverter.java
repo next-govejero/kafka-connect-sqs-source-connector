@@ -32,6 +32,11 @@ public class DefaultMessageConverter implements MessageConverter {
     private static final String HEADER_APPROXIMATE_RECEIVE_COUNT = "sqs.approximate.receive.count";
     private static final String HEADER_APPROXIMATE_FIRST_RECEIVE_TIMESTAMP = "sqs.approximate.first.receive.timestamp";
 
+    // FIFO-specific header keys
+    private static final String HEADER_MESSAGE_GROUP_ID = "sqs.message.group.id";
+    private static final String HEADER_MESSAGE_DEDUPLICATION_ID = "sqs.message.deduplication.id";
+    private static final String HEADER_SEQUENCE_NUMBER = "sqs.sequence.number";
+
     @Override
     public SourceRecord convert(Message message, SqsSourceConnectorConfig config) {
         log.debug("Converting SQS message: {}", message.messageId());
@@ -54,8 +59,10 @@ public class DefaultMessageConverter implements MessageConverter {
         // Message body as value
         String value = message.body();
 
-        // Use message ID as key for partitioning
-        String key = message.messageId();
+        // Determine the key for partitioning
+        // For FIFO queues, use MessageGroupId to preserve ordering within message groups
+        // This ensures all messages from the same group go to the same Kafka partition
+        String key = determineKey(message, config);
 
         return new SourceRecord(
                 sourcePartition,
@@ -69,6 +76,33 @@ public class DefaultMessageConverter implements MessageConverter {
                 System.currentTimeMillis(),
                 headers
         );
+    }
+
+    /**
+     * Determines the Kafka record key based on message type.
+     * For FIFO queues, uses MessageGroupId to preserve ordering.
+     * For standard queues, uses message ID.
+     *
+     * @param message The SQS message
+     * @param config The connector configuration
+     * @return The key to use for the Kafka record
+     */
+    private String determineKey(Message message, SqsSourceConnectorConfig config) {
+        if (config.isFifoQueue()) {
+            // For FIFO queues, use MessageGroupId as the key to preserve ordering
+            // All messages in the same group will go to the same Kafka partition
+            Map<String, String> attributes = message.attributesAsStrings();
+            if (attributes != null && attributes.containsKey("MessageGroupId")) {
+                String messageGroupId = attributes.get("MessageGroupId");
+                log.debug("Using MessageGroupId {} as key for FIFO message {}", messageGroupId, message.messageId());
+                return messageGroupId;
+            }
+            log.warn("FIFO queue configured but MessageGroupId not found for message {}, using messageId as key",
+                    message.messageId());
+        }
+
+        // For standard queues or if MessageGroupId is not available, use message ID
+        return message.messageId();
     }
 
     private Headers createHeaders(Message message, SqsSourceConnectorConfig config) {
@@ -100,6 +134,19 @@ public class DefaultMessageConverter implements MessageConverter {
             if (attributes.containsKey("ApproximateFirstReceiveTimestamp")) {
                 headers.addString(HEADER_APPROXIMATE_FIRST_RECEIVE_TIMESTAMP,
                         attributes.get("ApproximateFirstReceiveTimestamp"));
+            }
+
+            // Add FIFO-specific attributes if present
+            if (attributes.containsKey("MessageGroupId")) {
+                headers.addString(HEADER_MESSAGE_GROUP_ID, attributes.get("MessageGroupId"));
+            }
+
+            if (attributes.containsKey("MessageDeduplicationId")) {
+                headers.addString(HEADER_MESSAGE_DEDUPLICATION_ID, attributes.get("MessageDeduplicationId"));
+            }
+
+            if (attributes.containsKey("SequenceNumber")) {
+                headers.addString(HEADER_SEQUENCE_NUMBER, attributes.get("SequenceNumber"));
             }
         }
 
