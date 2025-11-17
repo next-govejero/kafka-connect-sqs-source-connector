@@ -12,7 +12,6 @@ import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.kafka.common.errors.SerializationException;
 import org.apache.kafka.connect.data.SchemaAndValue;
-import org.apache.kafka.connect.data.SchemaBuilder.Type;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.errors.DataException;
 import org.slf4j.Logger;
@@ -171,7 +170,8 @@ public class AvroMessageConverter extends SchemaRegistryConverter {
             return fields.name(fieldName).type().nullable().array().items(itemSchema).noDefault();
         } else if (value.isObject()) {
             Schema nestedSchema = inferNestedObjectSchema(fieldName, value);
-            return fields.name(fieldName).type().nullable().type(nestedSchema).noDefault();
+            Schema nullableNested = Schema.createUnion(Schema.create(Schema.Type.NULL), nestedSchema);
+            return fields.name(fieldName).type(nullableNested).noDefault();
         } else {
             // Default to string for unknown types
             return fields.name(fieldName).type().nullable().stringType().noDefault();

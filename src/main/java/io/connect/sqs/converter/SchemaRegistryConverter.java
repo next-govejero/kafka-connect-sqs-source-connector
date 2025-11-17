@@ -319,7 +319,7 @@ public abstract class SchemaRegistryConverter implements MessageConverter {
     protected String fetchSchemaById(int schemaId) {
         ensureInitialized();
         try {
-            return schemaRegistryClient.getById(schemaId).canonicalString();
+            return schemaRegistryClient.getById(schemaId).toString();
         } catch (IOException | RestClientException e) {
             throw new SerializationException("Failed to fetch schema with ID " + schemaId, e);
         }
