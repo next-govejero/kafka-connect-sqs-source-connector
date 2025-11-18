@@ -76,6 +76,17 @@ Extract the package to your Kafka Connect plugin directory:
 unzip target/kafka-connect-sqs-source-1.0.0-SNAPSHOT-package.zip -d /usr/local/share/kafka/plugins/
 ```
 
+The connector is automatically installed with the proper structure:
+```
+/usr/local/share/kafka/plugins/
+└── kafka-connect-sqs-source-1.0.0-SNAPSHOT-package/
+    ├── LICENSE
+    ├── README.md
+    ├── config/              (example configuration files)
+    └── lib/                 (connector and dependency JARs)
+        └── kafka-connect-sqs-source-1.0.0-SNAPSHOT.jar
+```
+
 ### 3. Configure the Connector
 
 Create a connector configuration file (see [Configuration](#configuration) for all options):
@@ -102,19 +113,31 @@ sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule require
 
 ### 4. Start the Connector
 
+The connector package includes example configuration files in the `config/` directory. Copy and customize one for your environment:
+
+```bash
+# Copy example config from the installed connector
+cp /usr/local/share/kafka/plugins/kafka-connect-sqs-source-1.0.0-SNAPSHOT/config/sqs-source-connector.properties \
+   ./my-sqs-connector.properties
+
+# Edit with your settings (queue URL, Kafka topic, credentials, etc.)
+vi ./my-sqs-connector.properties
+```
+
 Using Kafka Connect REST API:
 
 ```bash
 curl -X POST http://localhost:8083/connectors \
   -H "Content-Type: application/json" \
-  -d @config/sqs-source-connector.properties
+  -d @my-sqs-connector.properties
 ```
 
 Or using standalone mode:
 
 ```bash
-connect-standalone.sh config/sqs-source-connector-standalone.properties \
-  config/sqs-source-connector.properties
+connect-standalone.sh \
+  /usr/local/share/kafka/plugins/kafka-connect-sqs-source-1.0.0-SNAPSHOT/config/sqs-source-connector-standalone.properties \
+  ./my-sqs-connector.properties
 ```
 
 ## Configuration

@@ -38,9 +38,11 @@ RUN mkdir -p /usr/share/java/kafka-connect-sqs
 COPY --from=builder /build/target/kafka-connect-sqs-source-1.0.0-SNAPSHOT-package.zip \
     /usr/share/java/kafka-connect-sqs/
 
-# Extract using jar command and clean up
+# Extract using jar command, move contents up one level, and clean up
 RUN cd /usr/share/java/kafka-connect-sqs && \
     jar xf kafka-connect-sqs-source-1.0.0-SNAPSHOT-package.zip && \
+    mv kafka-connect-sqs-source-1.0.0-SNAPSHOT/* . && \
+    rmdir kafka-connect-sqs-source-1.0.0-SNAPSHOT && \
     rm -f kafka-connect-sqs-source-1.0.0-SNAPSHOT-package.zip
 
 # Set plugin path

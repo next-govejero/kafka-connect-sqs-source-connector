@@ -5,10 +5,10 @@
     <formats>
         <format>zip</format>
     </formats>
-    <includeBaseDirectory>false</includeBaseDirectory>
+    <includeBaseDirectory>true</includeBaseDirectory>
     <dependencySets>
         <dependencySet>
-            <outputDirectory>/</outputDirectory>
+            <outputDirectory>/lib</outputDirectory>
             <useProjectArtifact>true</useProjectArtifact>
             <useTransitiveDependencies>true</useTransitiveDependencies>
             <scope>runtime</scope>
