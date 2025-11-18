@@ -25,7 +25,7 @@ RUN --mount=type=cache,target=/root/.m2 \
     mvn clean package -DskipTests -Dcheckstyle.skip=true -Dmaven.javadoc.skip=true -B
 
 # Stage 2: Create the final connector image
-FROM confluentinc/cp-kafka-connect:7.5.0
+FROM confluentinc/cp-kafka-connect:8.1.0
 
 # Metadata
 LABEL maintainer="your-email@example.com"
