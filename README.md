@@ -11,6 +11,7 @@ A production-ready Kafka Connect source connector that streams messages from AWS
 ## Features
 
 - **Schema Registry Support**: Enterprise-grade schema validation with Avro, Protobuf, and JSON Schema converters
+- **Message Decompression**: Automatic decompression of gzip/deflate/zlib compressed data with Base64 decoding and flexible field-path support
 - **Multi-Queue Support**: Consume from multiple SQS queues with automatic task distribution for parallel processing
 - **Message Filtering**: Client-side filtering with support for exact match, prefix, exists, and numeric conditions
 - **Reliable Message Processing**: Long polling support with configurable visibility timeouts
@@ -227,6 +228,7 @@ For enterprise schema validation, the connector supports Avro, Protobuf, and JSO
 - `io.connect.sqs.converter.AvroMessageConverter` - Apache Avro with Schema Registry
 - `io.connect.sqs.converter.ProtobufMessageConverter` - Protocol Buffers with Schema Registry
 - `io.connect.sqs.converter.JsonSchemaMessageConverter` - JSON Schema with Schema Registry
+- `io.connect.sqs.converter.DecompressingMessageConverter` - Decompression wrapper for compressed messages
 
 **Example with Avro:**
 
@@ -239,6 +241,92 @@ For enterprise schema validation, the connector supports Avro, Protobuf, and JSO
 ```
 
 For comprehensive Schema Registry documentation including examples, schema evolution, and best practices, see [Schema Registry Documentation](docs/SCHEMA_REGISTRY.md).
+
+### Message Decompression Configuration
+
+The connector supports automatic decompression of compressed message data (gzip, deflate, zlib). This is useful when SQS messages contain compressed payloads, such as EventBridge events with compressed data fields.
+
+**Configuration:**
+
+| Property | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `message.decompression.enabled` | Enable message decompression | No | `false` |
+| `message.decompression.delegate.converter.class` | Converter to use after decompression | No | `DefaultMessageConverter` |
+| `message.decompression.field.path` | JSON field path to decompress (e.g., `detail.data`) | No | - (decompresses entire body) |
+| `message.decompression.format` | Compression format: `AUTO`, `GZIP`, `DEFLATE`, `ZLIB` | No | `AUTO` |
+| `message.decompression.base64.decode` | Attempt Base64 decoding before decompression | No | `true` |
+
+**Usage:**
+
+To use message decompression, set `message.converter.class` to `DecompressingMessageConverter` and configure the delegate converter:
+
+```json
+{
+  "message.converter.class": "io.connect.sqs.converter.DecompressingMessageConverter",
+  "message.decompression.delegate.converter.class": "io.connect.sqs.converter.DefaultMessageConverter",
+  "message.decompression.field.path": "detail.data",
+  "message.decompression.format": "AUTO",
+  "message.decompression.base64.decode": "true"
+}
+```
+
+**Example 1: Decompress Entire Message Body**
+
+If your entire SQS message is gzip-compressed and Base64-encoded:
+
+```json
+{
+  "message.converter.class": "io.connect.sqs.converter.DecompressingMessageConverter",
+  "message.decompression.delegate.converter.class": "io.connect.sqs.converter.DefaultMessageConverter"
+}
+```
+
+**Example 2: Decompress Nested Field (EventBridge Events)**
+
+For EventBridge events where `detail.data` contains compressed JSON:
+
+```json
+{
+  "version": "0",
+  "id": "event-id",
+  "detail-type": "PriceCache.Updated",
+  "source": "PriceCacheService",
+  "detail": {
+    "data": "H4sIAAAAAAAA/6tWKkktLlGyUlAqS8wpTtVRKi1OLYrPTSwpSs2zUgKpBQBZvhNoIwAAAA=="
+  }
+}
+```
+
+Configuration:
+
+```json
+{
+  "message.converter.class": "io.connect.sqs.converter.DecompressingMessageConverter",
+  "message.decompression.delegate.converter.class": "io.connect.sqs.converter.AvroMessageConverter",
+  "message.decompression.field.path": "detail.data",
+  "schema.registry.url": "http://schema-registry:8081"
+}
+```
+
+**Example 3: Deeply Nested Field Paths**
+
+For complex JSON structures with nested compressed fields:
+
+```json
+{
+  "message.converter.class": "io.connect.sqs.converter.DecompressingMessageConverter",
+  "message.decompression.field.path": "payload.body.compressed_content"
+}
+```
+
+**Features:**
+
+- **Auto-detection**: Automatically detects compression format (gzip, deflate, zlib) based on magic bytes
+- **Base64 handling**: Automatically decodes Base64-encoded compressed data (common in JSON)
+- **Flexible field paths**: Use dot notation to decompress any nested JSON field
+- **Format override**: Specify exact compression format for better performance
+- **Converter chaining**: Works with any message converter (Default, Avro, Protobuf, JSON Schema)
+- **Graceful fallback**: Returns original data if decompression fails
 
 ## SCRAM Authentication
 

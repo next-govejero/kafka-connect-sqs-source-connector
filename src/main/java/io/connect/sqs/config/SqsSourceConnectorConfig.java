@@ -175,6 +175,26 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
     private static final String SCHEMA_SUBJECT_NAME_STRATEGY_DOC = "Strategy for naming schemas in Schema Registry (TopicNameStrategy, RecordNameStrategy, TopicRecordNameStrategy)";
     private static final String SCHEMA_SUBJECT_NAME_STRATEGY_DEFAULT = "io.confluent.kafka.serializers.subject.TopicNameStrategy";
 
+    // Message Decompression Configuration
+    public static final String MESSAGE_DECOMPRESSION_ENABLED_CONFIG = "message.decompression.enabled";
+    private static final String MESSAGE_DECOMPRESSION_ENABLED_DOC = "Enable automatic decompression of compressed message data (gzip, deflate, zlib)";
+    private static final boolean MESSAGE_DECOMPRESSION_ENABLED_DEFAULT = false;
+
+    public static final String MESSAGE_DECOMPRESSION_DELEGATE_CONVERTER_CLASS_CONFIG = "message.decompression.delegate.converter.class";
+    private static final String MESSAGE_DECOMPRESSION_DELEGATE_CONVERTER_CLASS_DOC = "The MessageConverter class to delegate to after decompression. Required when message.decompression.enabled is true";
+    private static final String MESSAGE_DECOMPRESSION_DELEGATE_CONVERTER_CLASS_DEFAULT = "io.connect.sqs.converter.DefaultMessageConverter";
+
+    public static final String MESSAGE_DECOMPRESSION_FIELD_PATH_CONFIG = "message.decompression.field.path";
+    private static final String MESSAGE_DECOMPRESSION_FIELD_PATH_DOC = "JSON field path to decompress (e.g., 'detail.data'). If not specified, decompresses entire message body. Use dot notation for nested fields.";
+
+    public static final String MESSAGE_DECOMPRESSION_FORMAT_CONFIG = "message.decompression.format";
+    private static final String MESSAGE_DECOMPRESSION_FORMAT_DOC = "Compression format to use: AUTO (auto-detect), GZIP, DEFLATE, ZLIB. Default is AUTO.";
+    private static final String MESSAGE_DECOMPRESSION_FORMAT_DEFAULT = "AUTO";
+
+    public static final String MESSAGE_DECOMPRESSION_BASE64_DECODE_CONFIG = "message.decompression.base64.decode";
+    private static final String MESSAGE_DECOMPRESSION_BASE64_DECODE_DOC = "Attempt to Base64-decode data before decompression (common for compressed data in JSON)";
+    private static final boolean MESSAGE_DECOMPRESSION_BASE64_DECODE_DEFAULT = true;
+
     public static final ConfigDef CONFIG_DEF = createConfigDef();
 
     private static ConfigDef createConfigDef() {
@@ -722,6 +742,70 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
                 "Subject Name Strategy"
         );
 
+        // Message Decompression Group
+        final String decompressionGroup = "Message Decompression";
+        int decompressionGroupOrder = 0;
+
+        configDef.define(
+                MESSAGE_DECOMPRESSION_ENABLED_CONFIG,
+                Type.BOOLEAN,
+                MESSAGE_DECOMPRESSION_ENABLED_DEFAULT,
+                Importance.MEDIUM,
+                MESSAGE_DECOMPRESSION_ENABLED_DOC,
+                decompressionGroup,
+                ++decompressionGroupOrder,
+                Width.SHORT,
+                "Decompression Enabled"
+        );
+
+        configDef.define(
+                MESSAGE_DECOMPRESSION_DELEGATE_CONVERTER_CLASS_CONFIG,
+                Type.STRING,
+                MESSAGE_DECOMPRESSION_DELEGATE_CONVERTER_CLASS_DEFAULT,
+                Importance.MEDIUM,
+                MESSAGE_DECOMPRESSION_DELEGATE_CONVERTER_CLASS_DOC,
+                decompressionGroup,
+                ++decompressionGroupOrder,
+                Width.LONG,
+                "Delegate Converter Class"
+        );
+
+        configDef.define(
+                MESSAGE_DECOMPRESSION_FIELD_PATH_CONFIG,
+                Type.STRING,
+                null,
+                Importance.LOW,
+                MESSAGE_DECOMPRESSION_FIELD_PATH_DOC,
+                decompressionGroup,
+                ++decompressionGroupOrder,
+                Width.MEDIUM,
+                "Field Path to Decompress"
+        );
+
+        configDef.define(
+                MESSAGE_DECOMPRESSION_FORMAT_CONFIG,
+                Type.STRING,
+                MESSAGE_DECOMPRESSION_FORMAT_DEFAULT,
+                Importance.LOW,
+                MESSAGE_DECOMPRESSION_FORMAT_DOC,
+                decompressionGroup,
+                ++decompressionGroupOrder,
+                Width.SHORT,
+                "Compression Format"
+        );
+
+        configDef.define(
+                MESSAGE_DECOMPRESSION_BASE64_DECODE_CONFIG,
+                Type.BOOLEAN,
+                MESSAGE_DECOMPRESSION_BASE64_DECODE_DEFAULT,
+                Importance.LOW,
+                MESSAGE_DECOMPRESSION_BASE64_DECODE_DOC,
+                decompressionGroup,
+                ++decompressionGroupOrder,
+                Width.SHORT,
+                "Base64 Decode Enabled"
+        );
+
         return configDef;
     }
 
@@ -1035,6 +1119,27 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
 
     public String getSchemaSubjectNameStrategy() {
         return getString(SCHEMA_SUBJECT_NAME_STRATEGY_CONFIG);
+    }
+
+    // Message Decompression getters
+    public boolean isMessageDecompressionEnabled() {
+        return getBoolean(MESSAGE_DECOMPRESSION_ENABLED_CONFIG);
+    }
+
+    public String getMessageDecompressionDelegateConverterClass() {
+        return getString(MESSAGE_DECOMPRESSION_DELEGATE_CONVERTER_CLASS_CONFIG);
+    }
+
+    public String getMessageDecompressionFieldPath() {
+        return getString(MESSAGE_DECOMPRESSION_FIELD_PATH_CONFIG);
+    }
+
+    public String getMessageDecompressionFormat() {
+        return getString(MESSAGE_DECOMPRESSION_FORMAT_CONFIG);
+    }
+
+    public boolean isMessageDecompressionBase64DecodeEnabled() {
+        return getBoolean(MESSAGE_DECOMPRESSION_BASE64_DECODE_CONFIG);
     }
 }
 
