@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Message Decompression Support**
+  - Automatic decompression of compressed SQS message data (gzip, deflate, zlib)
+  - Auto-detection of compression format based on magic bytes
+  - Base64 decoding support for compressed data in JSON
+  - Flexible field-path decompression using dot notation (e.g., `detail.data`)
+  - Support for both entire message body and nested field decompression
+  - `DecompressingMessageConverter` wrapper that works with any delegate converter
+  - Graceful fallback to original data if decompression fails
+  - Configuration options:
+    - `message.decompression.delegate.converter.class` - Converter to use after decompression
+    - `message.decompression.field.path` - JSON field path to decompress
+    - `message.decompression.format` - Compression format (AUTO, GZIP, DEFLATE, ZLIB)
+    - `message.decompression.base64.decode` - Enable/disable Base64 decoding
+  - Comprehensive documentation in `docs/MESSAGE_DECOMPRESSION.md`
+  - Use cases:
+    - EventBridge events with compressed `detail.data` fields
+    - Cost optimization by reducing SQS message sizes
+    - Integration with systems that send compressed payloads
+    - High-throughput scenarios with bandwidth constraints
+
+### Testing
+- **Message Decompression Tests**
+  - 30+ unit tests for `MessageDecompressor` utility class
+  - 15+ unit tests for `DecompressingMessageConverter`
+  - Test coverage for all compression formats (gzip, deflate, zlib)
+  - Tests for Base64 encoding/decoding
+  - Tests for nested field path navigation
+  - Tests for error handling and graceful fallback
+
 ## [1.0.0] - 2025-11-06
 
 ### Added
