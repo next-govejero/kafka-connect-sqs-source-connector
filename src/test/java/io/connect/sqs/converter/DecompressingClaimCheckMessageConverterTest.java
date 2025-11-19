@@ -224,8 +224,8 @@ class DecompressingClaimCheckMessageConverterTest {
         converter.setFieldPath("detail.data");
         converter.setCompressionFormat(MessageDecompressor.CompressionFormat.GZIP);
         converter.setTryBase64Decode(true);
-        converter.setRetrieveFromS3IfUri(false); // Disabled
         converter.initializeForTesting();
+        converter.setRetrieveFromS3IfUri(false); // Disabled - must be after initializeForTesting
 
         // Act
         SourceRecord result = converter.convert(sqsMessage, config);
