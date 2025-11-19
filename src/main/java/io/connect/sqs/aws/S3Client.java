@@ -136,8 +136,8 @@ public class S3Client implements AutoCloseable {
         String accessKeyId = config.getAwsAccessKeyId();
         String secretKey = config.getAwsSecretAccessKey();
         String roleArn = config.getAwsAssumeRoleArn();
-        String profileName = config.getAwsProfileName();
-        String profilePath = config.getAwsProfilePath();
+        String profileName = config.getAwsCredentialsProfile();
+        String profilePath = config.getAwsCredentialsFilePath();
 
         // Priority order:
         // 1. STS Assume Role (requires base credentials from static or default provider)
@@ -184,15 +184,15 @@ public class S3Client implements AutoCloseable {
                     .credentialsProvider(baseProvider)
                     .build()) {
 
-                String sessionName = config.getAwsAssumeRoleSessionName() != null
-                        ? config.getAwsAssumeRoleSessionName()
+                String sessionName = config.getAwsStsRoleSessionName() != null
+                        ? config.getAwsStsRoleSessionName()
                         : "kafka-connect-sqs-s3-session";
 
                 AssumeRoleRequest.Builder roleRequestBuilder = AssumeRoleRequest.builder()
                         .roleArn(roleArn)
                         .roleSessionName(sessionName);
 
-                String externalId = config.getAwsAssumeRoleExternalId();
+                String externalId = config.getAwsStsRoleExternalId();
                 if (externalId != null && !externalId.trim().isEmpty()) {
                     roleRequestBuilder.externalId(externalId);
                 }
