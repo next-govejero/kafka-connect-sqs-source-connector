@@ -1,0 +1,22 @@
+{
+  "name": "sqs-source-decompressing-claim-check",
+  "config": {
+    "connector.class": "io.connect.sqs.SqsSourceConnector",
+    "tasks.max": "1",
+
+    "sqs.queue.url": "https://sqs.eu-west-1.amazonaws.com/891377401540/your-queue",
+    "kafka.topic": "price-cache-events",
+
+    "message.converter.class": "io.connect.sqs.converter.DecompressingClaimCheckMessageConverter",
+    "message.decompression.field.path": "detail.data",
+    "message.decompression.format": "GZIP",
+    "message.decompression.base64.decode": "true",
+    "message.decompression.delegate.converter.class": "io.connect.sqs.converter.DefaultMessageConverter",
+
+    "aws.region": "eu-west-1",
+
+    "kafka.bootstrap.servers": "localhost:9092",
+    "sasl.mechanism": "SCRAM-SHA-512",
+    "sasl.jaas.config": "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"your-username\" password=\"your-password\";"
+  }
+}

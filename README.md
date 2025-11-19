@@ -12,6 +12,7 @@ A production-ready Kafka Connect source connector that streams messages from AWS
 
 - **Schema Registry Support**: Enterprise-grade schema validation with Avro, Protobuf, and JSON Schema converters
 - **Message Decompression**: Automatic decompression of gzip/deflate/zlib compressed data with Base64 decoding and flexible field-path support
+- **Claim Check Pattern**: Retrieve large messages from S3 using S3 URI references, with optional decompression support
 - **Multi-Queue Support**: Consume from multiple SQS queues with automatic task distribution for parallel processing
 - **Message Filtering**: Client-side filtering with support for exact match, prefix, exists, and numeric conditions
 - **Reliable Message Processing**: Long polling support with configurable visibility timeouts
@@ -229,6 +230,8 @@ For enterprise schema validation, the connector supports Avro, Protobuf, and JSO
 - `io.connect.sqs.converter.ProtobufMessageConverter` - Protocol Buffers with Schema Registry
 - `io.connect.sqs.converter.JsonSchemaMessageConverter` - JSON Schema with Schema Registry
 - `io.connect.sqs.converter.DecompressingMessageConverter` - Decompression wrapper for compressed messages
+- `io.connect.sqs.converter.ClaimCheckMessageConverter` - Claim check pattern for retrieving large messages from S3
+- `io.connect.sqs.converter.DecompressingClaimCheckMessageConverter` - Combined: decompress then optionally retrieve from S3 if content is S3 URI
 
 **Example with Avro:**
 
@@ -329,6 +332,135 @@ For complex JSON structures with nested compressed fields:
 - **Graceful fallback**: Returns original data if decompression fails
 
 For comprehensive Message Decompression documentation including performance considerations, troubleshooting, and advanced examples, see [Message Decompression Documentation](docs/MESSAGE_DECOMPRESSION.md).
+
+### Claim Check Pattern Configuration
+
+The connector supports the **Claim Check Pattern** for handling large messages that exceed SQS/EventBridge size limits (256KB for SQS, 256KB for EventBridge). Instead of sending the full payload, systems send an S3 URI reference, which the connector retrieves and processes.
+
+**Configuration:**
+
+| Property | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `message.claimcheck.enabled` | Enable claim check pattern to retrieve messages from S3 | No | `false` |
+| `message.claimcheck.delegate.converter.class` | Converter to use after S3 retrieval | No | `DefaultMessageConverter` |
+| `message.claimcheck.field.path` | JSON field path containing S3 URI (e.g., `detail.s3Key`) | No | - (treats entire body as S3 URI) |
+| `message.claimcheck.decompress.enabled` | Decompress data after retrieving from S3 | No | `false` |
+| `message.claimcheck.compression.format` | Compression format: `AUTO`, `GZIP`, `DEFLATE`, `ZLIB` | No | `AUTO` |
+| `message.claimcheck.base64.decode` | Attempt Base64 decoding before decompression | No | `true` |
+
+**Usage:**
+
+To use the claim check pattern, set `message.converter.class` to `ClaimCheckMessageConverter` and configure the delegate converter:
+
+```json
+{
+  "message.converter.class": "io.connect.sqs.converter.ClaimCheckMessageConverter",
+  "message.claimcheck.delegate.converter.class": "io.connect.sqs.converter.DefaultMessageConverter",
+  "message.claimcheck.field.path": "detail.s3Key"
+}
+```
+
+**Example 1: Entire Message Body is S3 URI**
+
+If your SQS message body contains only an S3 URI:
+
+```json
+// SQS Message Body
+"s3://my-bucket/large-messages/message-123.json"
+```
+
+Configuration:
+
+```json
+{
+  "message.converter.class": "io.connect.sqs.converter.ClaimCheckMessageConverter",
+  "message.claimcheck.delegate.converter.class": "io.connect.sqs.converter.DefaultMessageConverter"
+}
+```
+
+**Example 2: S3 URI in Nested Field (EventBridge Events)**
+
+For EventBridge events where `detail.s3Key` contains the S3 URI:
+
+```json
+{
+  "version": "0",
+  "id": "event-id",
+  "detail-type": "LargeDataUpdate",
+  "source": "DataProcessingService",
+  "detail": {
+    "s3Key": "s3://my-bucket/large-data/data-456.json",
+    "metadata": {
+      "size": 5242880,
+      "timestamp": "2024-01-15T10:30:00Z"
+    }
+  }
+}
+```
+
+Configuration:
+
+```json
+{
+  "message.converter.class": "io.connect.sqs.converter.ClaimCheckMessageConverter",
+  "message.claimcheck.delegate.converter.class": "io.connect.sqs.converter.DefaultMessageConverter",
+  "message.claimcheck.field.path": "detail.s3Key"
+}
+```
+
+**Example 3: Compressed Data in S3**
+
+When S3 objects contain compressed data:
+
+```json
+{
+  "message.converter.class": "io.connect.sqs.converter.ClaimCheckMessageConverter",
+  "message.claimcheck.delegate.converter.class": "io.connect.sqs.converter.AvroMessageConverter",
+  "message.claimcheck.field.path": "detail.s3Key",
+  "message.claimcheck.decompress.enabled": "true",
+  "message.claimcheck.compression.format": "GZIP",
+  "schema.registry.url": "http://schema-registry:8081"
+}
+```
+
+**Example 4: Combined with Message Filtering**
+
+Retrieve only specific large messages using message filtering:
+
+```json
+{
+  "message.converter.class": "io.connect.sqs.converter.ClaimCheckMessageConverter",
+  "message.claimcheck.field.path": "detail.s3Key",
+  "message.filter.enabled": "true",
+  "message.filter.policy": "{\"detail-type\":[\"LargeDataUpdate\"]}"
+}
+```
+
+**Features:**
+
+- **Flexible S3 URI detection**: Supports S3 URIs in entire message body or nested JSON fields
+- **Automatic retrieval**: Transparently retrieves content from S3 using the same AWS credentials
+- **Compression support**: Optionally decompress S3 content (gzip, deflate, zlib)
+- **Mixed mode**: Handles messages with both S3 references and regular content
+- **Converter chaining**: Works with any message converter (Default, Avro, Protobuf, JSON Schema)
+- **Same AWS credentials**: Uses the same AWS credentials configured for SQS access
+- **Graceful fallback**: Returns original message if S3 URI is not detected
+
+**Common Use Cases:**
+
+1. **Large EventBridge events** (>256KB): Store event details in S3, send reference via EventBridge
+2. **Bulk data processing**: Send S3 references instead of embedding large datasets
+3. **File uploads**: Reference uploaded files stored in S3
+4. **Archive retrieval**: Process historical data stored in S3
+
+**Performance Considerations:**
+
+- Each message with an S3 reference requires an additional S3 API call
+- Consider S3 request costs when processing high volumes
+- Use S3 Transfer Acceleration for cross-region scenarios
+- Enable S3 caching at the application level if processing duplicate references
+
+For comprehensive Claim Check Pattern documentation including architecture diagrams, cost optimization, performance tuning, and troubleshooting, see [Claim Check Pattern Documentation](docs/CLAIM_CHECK_PATTERN.md).
 
 ## SCRAM Authentication
 

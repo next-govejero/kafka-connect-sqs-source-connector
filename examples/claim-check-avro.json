@@ -1,0 +1,24 @@
+{
+  "name": "sqs-source-claim-check-avro",
+  "config": {
+    "connector.class": "io.connect.sqs.SqsSourceConnector",
+    "tasks.max": "1",
+
+    "sqs.queue.url": "https://sqs.us-east-1.amazonaws.com/123456789012/my-queue",
+    "kafka.topic": "user-events",
+
+    "message.converter.class": "io.connect.sqs.converter.ClaimCheckMessageConverter",
+    "message.claimcheck.field.path": "detail.s3Data",
+    "message.claimcheck.delegate.converter.class": "io.connect.sqs.converter.AvroMessageConverter",
+
+    "schema.registry.url": "http://schema-registry:8081",
+    "schema.subject.name": "user-events-value",
+    "schema.subject.name.strategy": "io.confluent.kafka.serializers.subject.TopicNameStrategy",
+
+    "aws.region": "us-east-1",
+
+    "kafka.bootstrap.servers": "localhost:9092",
+    "sasl.mechanism": "SCRAM-SHA-512",
+    "sasl.jaas.config": "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"your-username\" password=\"your-password\";"
+  }
+}
