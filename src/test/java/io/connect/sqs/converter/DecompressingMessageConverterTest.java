@@ -261,7 +261,10 @@ class DecompressingMessageConverterTest {
         props.put("message.decompression.base64.decode", "true");
 
         SqsSourceConnectorConfig config = new SqsSourceConnectorConfig(props);
-        Message sqsMessage = createMessage("msg-1", "test");
+
+        // Use valid JSON with the configured field path
+        String messageBody = "{\"version\":\"0\",\"detail\":{\"data\":\"test-value\"}}";
+        Message sqsMessage = createMessage("msg-1", messageBody);
 
         DecompressingMessageConverter converter = new DecompressingMessageConverter();
 
