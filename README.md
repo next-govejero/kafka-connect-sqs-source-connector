@@ -459,6 +459,8 @@ Retrieve only specific large messages using message filtering:
 - Use S3 Transfer Acceleration for cross-region scenarios
 - Enable S3 caching at the application level if processing duplicate references
 
+For comprehensive Claim Check Pattern documentation including architecture diagrams, cost optimization, performance tuning, and troubleshooting, see [Claim Check Pattern Documentation](docs/CLAIM_CHECK_PATTERN.md).
+
 ## SCRAM Authentication
 
 This connector **requires** SCRAM-SHA-512 or SCRAM-SHA-256 authentication for secure Kafka connections.
