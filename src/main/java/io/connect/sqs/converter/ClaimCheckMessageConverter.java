@@ -84,8 +84,10 @@ public class ClaimCheckMessageConverter implements MessageConverter {
      * Initialize the delegate converter and claim check settings from config.
      */
     private void initialize(SqsSourceConnectorConfig config) {
-        // Initialize S3 client
-        this.s3Client = new S3Client(config);
+        // Initialize S3 client only if not already set (for testing)
+        if (this.s3Client == null) {
+            this.s3Client = new S3Client(config);
+        }
 
         // Get configuration values
         String delegateClass = config.getMessageClaimCheckDelegateConverterClass();
