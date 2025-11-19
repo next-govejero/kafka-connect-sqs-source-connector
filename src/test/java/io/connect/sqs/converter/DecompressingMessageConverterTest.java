@@ -50,8 +50,10 @@ class DecompressingMessageConverterTest {
                 .thenReturn(expectedRecord);
 
         converter.setDelegateConverter(mockDelegateConverter);
+        converter.setFieldPath(null); // Explicitly set to null for entire body decompression
         converter.setFormat(MessageDecompressor.CompressionFormat.AUTO);
         converter.setTryBase64Decode(true);
+        converter.initializeForTesting();
 
         // Act
         SourceRecord result = converter.convert(sqsMessage, config);
@@ -86,6 +88,7 @@ class DecompressingMessageConverterTest {
         converter.setFieldPath("detail.data");
         converter.setFormat(MessageDecompressor.CompressionFormat.AUTO);
         converter.setTryBase64Decode(true);
+        converter.initializeForTesting();
 
         // Act
         SourceRecord result = converter.convert(sqsMessage, config);
@@ -110,6 +113,7 @@ class DecompressingMessageConverterTest {
         converter.setFieldPath("detail.data");
         converter.setFormat(MessageDecompressor.CompressionFormat.AUTO);
         converter.setTryBase64Decode(true);
+        converter.initializeForTesting();
 
         // Act
         SourceRecord result = converter.convert(sqsMessage, config);
@@ -134,6 +138,7 @@ class DecompressingMessageConverterTest {
         converter.setFieldPath("detail.data");
         converter.setFormat(MessageDecompressor.CompressionFormat.AUTO);
         converter.setTryBase64Decode(true);
+        converter.initializeForTesting();
 
         // Act
         SourceRecord result = converter.convert(sqsMessage, config);
@@ -160,6 +165,7 @@ class DecompressingMessageConverterTest {
         converter.setDelegateConverter(mockDelegateConverter);
         converter.setFormat(MessageDecompressor.CompressionFormat.GZIP);
         converter.setTryBase64Decode(true);
+        converter.initializeForTesting();
 
         // Act
         SourceRecord result = converter.convert(sqsMessage, config);
@@ -181,8 +187,10 @@ class DecompressingMessageConverterTest {
                 .thenReturn(expectedRecord);
 
         converter.setDelegateConverter(mockDelegateConverter);
+        converter.setFieldPath(null); // Entire body decompression
         converter.setFormat(MessageDecompressor.CompressionFormat.AUTO);
         converter.setTryBase64Decode(false);
+        converter.initializeForTesting();
 
         // Act
         SourceRecord result = converter.convert(sqsMessage, config);
@@ -203,8 +211,10 @@ class DecompressingMessageConverterTest {
                 .thenReturn(expectedRecord);
 
         converter.setDelegateConverter(mockDelegateConverter);
+        converter.setFieldPath(null); // Entire body decompression
         converter.setFormat(MessageDecompressor.CompressionFormat.AUTO);
         converter.setTryBase64Decode(true);
+        converter.initializeForTesting();
 
         // Act
         SourceRecord result = converter.convert(sqsMessage, config);
@@ -225,8 +235,10 @@ class DecompressingMessageConverterTest {
                 .thenReturn(expectedRecord);
 
         converter.setDelegateConverter(mockDelegateConverter);
+        converter.setFieldPath(null); // Entire body decompression
         converter.setFormat(MessageDecompressor.CompressionFormat.AUTO);
         converter.setTryBase64Decode(true);
+        converter.initializeForTesting();
 
         // Act
         SourceRecord result = converter.convert(sqsMessage, config);
@@ -302,6 +314,7 @@ class DecompressingMessageConverterTest {
         converter.setFieldPath("level1.level2.level3.data");
         converter.setFormat(MessageDecompressor.CompressionFormat.AUTO);
         converter.setTryBase64Decode(true);
+        converter.initializeForTesting();
 
         // Act
         SourceRecord result = converter.convert(sqsMessage, config);

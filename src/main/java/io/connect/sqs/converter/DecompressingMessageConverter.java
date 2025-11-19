@@ -179,6 +179,7 @@ public class DecompressingMessageConverter implements MessageConverter {
 
     /**
      * Sets the field path (useful for testing).
+     * When fieldPath is null or empty, entire body decompression is enabled.
      */
     public void setFieldPath(String fieldPath) {
         this.fieldPath = fieldPath;
@@ -189,7 +190,7 @@ public class DecompressingMessageConverter implements MessageConverter {
      * Sets the compression format (useful for testing).
      */
     public void setFormat(MessageDecompressor.CompressionFormat format) {
-        this.format = format;
+        this.format = format != null ? format : MessageDecompressor.CompressionFormat.AUTO;
     }
 
     /**
@@ -197,5 +198,15 @@ public class DecompressingMessageConverter implements MessageConverter {
      */
     public void setTryBase64Decode(boolean tryBase64Decode) {
         this.tryBase64Decode = tryBase64Decode;
+    }
+
+    /**
+     * Initialize for testing with basic defaults.
+     */
+    void initializeForTesting() {
+        if (this.format == null) {
+            this.format = MessageDecompressor.CompressionFormat.AUTO;
+        }
+        this.decompressEntireBody = (this.fieldPath == null || this.fieldPath.trim().isEmpty());
     }
 }

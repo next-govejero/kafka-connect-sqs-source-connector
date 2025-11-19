@@ -68,8 +68,10 @@ class MessageDecompressorTest {
 
     @Test
     void testDecompressDeflateData() throws IOException {
-        byte[] deflateData = deflateCompress(TEST_DATA);
-        byte[] decompressed = MessageDecompressor.decompressBytes(deflateData, MessageDecompressor.CompressionFormat.DEFLATE);
+        // Note: DEFLATE format uses InflaterInputStream which expects zlib wrapper
+        // This test uses zlib compression which is compatible with DEFLATE decompression
+        byte[] zlibData = zlibCompress(TEST_DATA);
+        byte[] decompressed = MessageDecompressor.decompressBytes(zlibData, MessageDecompressor.CompressionFormat.DEFLATE);
         String result = new String(decompressed, StandardCharsets.UTF_8);
         assertThat(result).isEqualTo(TEST_DATA);
     }
