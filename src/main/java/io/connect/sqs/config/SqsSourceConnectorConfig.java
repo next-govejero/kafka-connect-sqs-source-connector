@@ -195,6 +195,30 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
     private static final String MESSAGE_DECOMPRESSION_BASE64_DECODE_DOC = "Attempt to Base64-decode data before decompression (common for compressed data in JSON)";
     private static final boolean MESSAGE_DECOMPRESSION_BASE64_DECODE_DEFAULT = true;
 
+    // Message Claim Check Pattern Configuration
+    public static final String MESSAGE_CLAIMCHECK_ENABLED_CONFIG = "message.claimcheck.enabled";
+    private static final String MESSAGE_CLAIMCHECK_ENABLED_DOC = "Enable claim check pattern to retrieve large messages from S3 using S3 URIs (s3://bucket/key)";
+    private static final boolean MESSAGE_CLAIMCHECK_ENABLED_DEFAULT = false;
+
+    public static final String MESSAGE_CLAIMCHECK_DELEGATE_CONVERTER_CLASS_CONFIG = "message.claimcheck.delegate.converter.class";
+    private static final String MESSAGE_CLAIMCHECK_DELEGATE_CONVERTER_CLASS_DOC = "The MessageConverter class to delegate to after S3 retrieval. Required when message.claimcheck.enabled is true";
+    private static final String MESSAGE_CLAIMCHECK_DELEGATE_CONVERTER_CLASS_DEFAULT = "io.connect.sqs.converter.DefaultMessageConverter";
+
+    public static final String MESSAGE_CLAIMCHECK_FIELD_PATH_CONFIG = "message.claimcheck.field.path";
+    private static final String MESSAGE_CLAIMCHECK_FIELD_PATH_DOC = "JSON field path containing S3 URI (e.g., 'detail.s3Key'). If not specified, treats entire message body as S3 URI. Use dot notation for nested fields.";
+
+    public static final String MESSAGE_CLAIMCHECK_DECOMPRESS_ENABLED_CONFIG = "message.claimcheck.decompress.enabled";
+    private static final String MESSAGE_CLAIMCHECK_DECOMPRESS_ENABLED_DOC = "Decompress data after retrieving from S3 (useful when S3 content is compressed)";
+    private static final boolean MESSAGE_CLAIMCHECK_DECOMPRESS_ENABLED_DEFAULT = false;
+
+    public static final String MESSAGE_CLAIMCHECK_COMPRESSION_FORMAT_CONFIG = "message.claimcheck.compression.format";
+    private static final String MESSAGE_CLAIMCHECK_COMPRESSION_FORMAT_DOC = "Compression format for S3 content: AUTO (auto-detect), GZIP, DEFLATE, ZLIB. Default is AUTO. Only used when message.claimcheck.decompress.enabled is true.";
+    private static final String MESSAGE_CLAIMCHECK_COMPRESSION_FORMAT_DEFAULT = "AUTO";
+
+    public static final String MESSAGE_CLAIMCHECK_BASE64_DECODE_CONFIG = "message.claimcheck.base64.decode";
+    private static final String MESSAGE_CLAIMCHECK_BASE64_DECODE_DOC = "Attempt to Base64-decode S3 content before decompression. Only used when message.claimcheck.decompress.enabled is true.";
+    private static final boolean MESSAGE_CLAIMCHECK_BASE64_DECODE_DEFAULT = true;
+
     public static final ConfigDef CONFIG_DEF = createConfigDef();
 
     private static ConfigDef createConfigDef() {
@@ -806,6 +830,82 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
                 "Base64 Decode Enabled"
         );
 
+        // Message Claim Check Pattern Group
+        final String claimCheckGroup = "Message Claim Check Pattern";
+        int claimCheckGroupOrder = 0;
+
+        configDef.define(
+                MESSAGE_CLAIMCHECK_ENABLED_CONFIG,
+                Type.BOOLEAN,
+                MESSAGE_CLAIMCHECK_ENABLED_DEFAULT,
+                Importance.MEDIUM,
+                MESSAGE_CLAIMCHECK_ENABLED_DOC,
+                claimCheckGroup,
+                ++claimCheckGroupOrder,
+                Width.SHORT,
+                "Claim Check Enabled"
+        );
+
+        configDef.define(
+                MESSAGE_CLAIMCHECK_DELEGATE_CONVERTER_CLASS_CONFIG,
+                Type.STRING,
+                MESSAGE_CLAIMCHECK_DELEGATE_CONVERTER_CLASS_DEFAULT,
+                Importance.MEDIUM,
+                MESSAGE_CLAIMCHECK_DELEGATE_CONVERTER_CLASS_DOC,
+                claimCheckGroup,
+                ++claimCheckGroupOrder,
+                Width.LONG,
+                "Delegate Converter Class"
+        );
+
+        configDef.define(
+                MESSAGE_CLAIMCHECK_FIELD_PATH_CONFIG,
+                Type.STRING,
+                null,
+                Importance.LOW,
+                MESSAGE_CLAIMCHECK_FIELD_PATH_DOC,
+                claimCheckGroup,
+                ++claimCheckGroupOrder,
+                Width.MEDIUM,
+                "Field Path with S3 URI"
+        );
+
+        configDef.define(
+                MESSAGE_CLAIMCHECK_DECOMPRESS_ENABLED_CONFIG,
+                Type.BOOLEAN,
+                MESSAGE_CLAIMCHECK_DECOMPRESS_ENABLED_DEFAULT,
+                Importance.LOW,
+                MESSAGE_CLAIMCHECK_DECOMPRESS_ENABLED_DOC,
+                claimCheckGroup,
+                ++claimCheckGroupOrder,
+                Width.SHORT,
+                "Decompress After Retrieval"
+        );
+
+        configDef.define(
+                MESSAGE_CLAIMCHECK_COMPRESSION_FORMAT_CONFIG,
+                Type.STRING,
+                MESSAGE_CLAIMCHECK_COMPRESSION_FORMAT_DEFAULT,
+                Importance.LOW,
+                MESSAGE_CLAIMCHECK_COMPRESSION_FORMAT_DOC,
+                claimCheckGroup,
+                ++claimCheckGroupOrder,
+                Width.SHORT,
+                "Compression Format"
+        );
+
+        configDef.define(
+                MESSAGE_CLAIMCHECK_BASE64_DECODE_CONFIG,
+                Type.BOOLEAN,
+                MESSAGE_CLAIMCHECK_BASE64_DECODE_DEFAULT,
+                Importance.LOW,
+                MESSAGE_CLAIMCHECK_BASE64_DECODE_DOC,
+                claimCheckGroup,
+                ++claimCheckGroupOrder,
+                Width.SHORT,
+                "Base64 Decode Enabled"
+        );
+
         return configDef;
     }
 
@@ -1140,6 +1240,31 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
 
     public boolean isMessageDecompressionBase64DecodeEnabled() {
         return getBoolean(MESSAGE_DECOMPRESSION_BASE64_DECODE_CONFIG);
+    }
+
+    // Claim Check Pattern Getters
+    public boolean isMessageClaimCheckEnabled() {
+        return getBoolean(MESSAGE_CLAIMCHECK_ENABLED_CONFIG);
+    }
+
+    public String getMessageClaimCheckDelegateConverterClass() {
+        return getString(MESSAGE_CLAIMCHECK_DELEGATE_CONVERTER_CLASS_CONFIG);
+    }
+
+    public String getMessageClaimCheckFieldPath() {
+        return getString(MESSAGE_CLAIMCHECK_FIELD_PATH_CONFIG);
+    }
+
+    public boolean isMessageClaimCheckDecompressEnabled() {
+        return getBoolean(MESSAGE_CLAIMCHECK_DECOMPRESS_ENABLED_CONFIG);
+    }
+
+    public String getMessageClaimCheckCompressionFormat() {
+        return getString(MESSAGE_CLAIMCHECK_COMPRESSION_FORMAT_CONFIG);
+    }
+
+    public boolean isMessageClaimCheckBase64DecodeEnabled() {
+        return getBoolean(MESSAGE_CLAIMCHECK_BASE64_DECODE_CONFIG);
     }
 }
 
