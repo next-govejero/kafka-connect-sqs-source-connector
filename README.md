@@ -328,6 +328,8 @@ For complex JSON structures with nested compressed fields:
 - **Converter chaining**: Works with any message converter (Default, Avro, Protobuf, JSON Schema)
 - **Graceful fallback**: Returns original data if decompression fails
 
+For comprehensive Message Decompression documentation including performance considerations, troubleshooting, and advanced examples, see [Message Decompression Documentation](docs/MESSAGE_DECOMPRESSION.md).
+
 ## SCRAM Authentication
 
 This connector **requires** SCRAM-SHA-512 or SCRAM-SHA-256 authentication for secure Kafka connections.
