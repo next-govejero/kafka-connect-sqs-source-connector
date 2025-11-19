@@ -266,7 +266,7 @@ public class ClaimCheckMessageConverter implements MessageConverter {
     /**
      * Initialize for testing with basic defaults.
      */
-    void initializeForTesting() {
+    public void initializeForTesting() {
         if (this.compressionFormat == null) {
             this.compressionFormat = MessageDecompressor.CompressionFormat.AUTO;
         }

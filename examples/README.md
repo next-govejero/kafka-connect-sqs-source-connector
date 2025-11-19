@@ -147,6 +147,102 @@ curl -X POST http://localhost:8083/connectors \
 
 ---
 
+### 5. Decompress then Claim Check (`decompressing-claim-check.json`)
+
+**Use Case:** Field contains GZIP+Base64 encoded content that could be either direct JSON or an S3 URI
+
+**Problem:** EventBridge `detail.data` field contains compressed content. After decompression, it might be:
+- Direct JSON data (fits in message)
+- S3 URI (for large data)
+
+**SQS Message Format:**
+```json
+{
+  "version": "0",
+  "detail-type": "PriceCache.Updated",
+  "detail": {
+    "data": "H4sIAAAAAAAA/+1d2XLbSJb9FQ...VERY LONG BASE64 STRING..."
+  }
+}
+```
+
+**After Decompression, `detail.data` contains one of:**
+1. Direct JSON: `{"price":100,"currency":"USD"}`
+2. S3 URI: `s3://my-bucket/large-pricing-data.json`
+
+**Configuration:**
+```bash
+curl -X POST http://localhost:8083/connectors \
+  -H "Content-Type: application/json" \
+  -d @examples/decompressing-claim-check.json
+```
+
+**Key Settings:**
+- `message.converter.class`: `DecompressingClaimCheckMessageConverter`
+- `message.decompression.field.path`: `detail.data`
+- `message.decompression.format`: `GZIP`
+- `message.decompression.base64.decode`: `true`
+
+**How It Works:**
+1. Decodes Base64 from `detail.data`
+2. Decompresses GZIP
+3. Checks if result is an S3 URI (`s3://...`)
+4. If S3 URI: retrieves from S3
+5. If direct JSON: uses it as-is
+6. Replaces `detail.data` with final content
+
+**Example Flow:**
+
+```
+Original Message:
+{
+  "detail": {
+    "data": "H4sIAAAAAAAA/ytJLS4BAAxGw84EAAAA"  ← Base64 GZIP
+  }
+}
+
+↓ Base64 Decode + GZIP Decompress
+
+Decompressed content:
+"s3://my-bucket/data.json"  ← S3 URI detected!
+
+↓ Retrieve from S3
+
+Final Message to Kafka:
+{
+  "detail": {
+    "data": "{\"price\":100,\"currency\":\"USD\"}"  ← S3 content
+  }
+}
+```
+
+**Alternate Flow (Direct JSON):**
+
+```
+Original Message:
+{
+  "detail": {
+    "data": "H4sIAAAAAAAA/6tWyk...ABC123"  ← Base64 GZIP
+  }
+}
+
+↓ Base64 Decode + GZIP Decompress
+
+Decompressed content:
+"{\"price\":100,\"currency\":\"USD\"}"  ← Direct JSON, no S3 URI
+
+↓ No S3 retrieval needed
+
+Final Message to Kafka:
+{
+  "detail": {
+    "data": "{\"price\":100,\"currency\":\"USD\"}"  ← Used as-is
+  }
+}
+```
+
+---
+
 ## Deployment
 
 ### Standalone Mode

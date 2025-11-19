@@ -231,6 +231,7 @@ For enterprise schema validation, the connector supports Avro, Protobuf, and JSO
 - `io.connect.sqs.converter.JsonSchemaMessageConverter` - JSON Schema with Schema Registry
 - `io.connect.sqs.converter.DecompressingMessageConverter` - Decompression wrapper for compressed messages
 - `io.connect.sqs.converter.ClaimCheckMessageConverter` - Claim check pattern for retrieving large messages from S3
+- `io.connect.sqs.converter.DecompressingClaimCheckMessageConverter` - Combined: decompress then optionally retrieve from S3 if content is S3 URI
 
 **Example with Avro:**
 
