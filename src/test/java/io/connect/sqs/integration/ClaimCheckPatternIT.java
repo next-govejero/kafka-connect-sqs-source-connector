@@ -1,5 +1,6 @@
 package io.connect.sqs.integration;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.connect.sqs.aws.S3Client;
 import io.connect.sqs.config.SqsSourceConnectorConfig;
@@ -201,8 +202,21 @@ class ClaimCheckPatternIT {
         converter.setDelegateConverter((message, cfg) -> {
             // Verify the S3 content was retrieved and replaced the S3 URI
             String body = message.body();
-            assertThat(body).contains(s3Content);
-            assertThat(body).doesNotContain(s3Uri); // S3 URI should be replaced
+            try {
+                // Parse the body to check the field value
+                JsonNode rootNode = objectMapper.readTree(body);
+                JsonNode s3KeyNode = rootNode.path("detail").path("s3Key");
+
+                // The s3Key field should now contain the S3 content (not the URI)
+                assertThat(s3KeyNode.isTextual()).isTrue();
+                String retrievedContent = s3KeyNode.asText();
+                assertThat(retrievedContent).isEqualTo(s3Content);
+
+                // Make sure it's NOT the S3 URI anymore
+                assertThat(retrievedContent).doesNotContain("s3://");
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to parse message body", e);
+            }
             return null;
         });
 
