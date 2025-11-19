@@ -257,7 +257,7 @@ class DecompressingMessageConverterTest {
         props.put("message.decompression.enabled", "true");
         props.put("message.decompression.delegate.converter.class", "io.connect.sqs.converter.DefaultMessageConverter");
         props.put("message.decompression.field.path", "detail.data");
-        props.put("message.decompression.format", "GZIP");
+        props.put("message.decompression.format", "AUTO");
         props.put("message.decompression.base64.decode", "true");
 
         SqsSourceConnectorConfig config = new SqsSourceConnectorConfig(props);
