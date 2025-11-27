@@ -13,6 +13,7 @@ A production-ready Kafka Connect source connector that streams messages from AWS
 - **Schema Registry Support**: Enterprise-grade schema validation with Avro, Protobuf, and JSON Schema converters
 - **Message Decompression**: Automatic decompression of gzip/deflate/zlib compressed data with Base64 decoding and flexible field-path support
 - **Claim Check Pattern**: Retrieve large messages from S3 using S3 URI references, with optional decompression support
+- **Field Extraction**: Extract nested JSON fields from converted messages using dot-notation paths (e.g., extract `detail.data` from EventBridge events)
 - **Multi-Queue Support**: Consume from multiple SQS queues with automatic task distribution for parallel processing
 - **Message Filtering**: Client-side filtering with support for exact match, prefix, exists, and numeric conditions
 - **Reliable Message Processing**: Long polling support with configurable visibility timeouts
@@ -232,6 +233,7 @@ For enterprise schema validation, the connector supports Avro, Protobuf, and JSO
 - `io.connect.sqs.converter.DecompressingMessageConverter` - Decompression wrapper for compressed messages
 - `io.connect.sqs.converter.ClaimCheckMessageConverter` - Claim check pattern for retrieving large messages from S3
 - `io.connect.sqs.converter.DecompressingClaimCheckMessageConverter` - Combined: decompress then optionally retrieve from S3 if content is S3 URI
+- `io.connect.sqs.converter.FieldExtractorConverter` - Extract nested JSON fields from final converted messages (automatically wraps configured converter)
 
 **Example with Avro:**
 
@@ -461,6 +463,143 @@ Retrieve only specific large messages using message filtering:
 - Enable S3 caching at the application level if processing duplicate references
 
 For comprehensive Claim Check Pattern documentation including architecture diagrams, cost optimization, performance tuning, and troubleshooting, see [Claim Check Pattern Documentation](docs/CLAIM_CHECK_PATTERN.md).
+
+### Field Extraction Configuration
+
+The connector supports **field extraction** to extract specific nested fields from the final converted message before sending to Kafka. This is particularly useful for EventBridge events where you want to extract just the `detail.data` field instead of the entire envelope.
+
+**Configuration:**
+
+| Property | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `message.output.field.extract` | JSON field path to extract (e.g., `detail.data`) | No | - (sends entire message) |
+| `message.output.field.extract.failOnMissing` | Fail when field path not found | No | `false` |
+
+**How It Works:**
+
+Field extraction happens **after** all other message processing (decompression, claim check, schema conversion). The connector:
+
+1. Processes the message with the configured converter
+2. Extracts the specified field using dot notation
+3. Sends only the extracted field value to Kafka
+
+**Usage:**
+
+Field extraction is automatically enabled when you configure `message.output.field.extract`. The connector wraps your configured converter with `FieldExtractorConverter`.
+
+```json
+{
+  "message.converter.class": "io.connect.sqs.converter.DecompressingClaimCheckMessageConverter",
+  "message.output.field.extract": "detail.data",
+  "message.output.field.extract.failOnMissing": "false"
+}
+```
+
+**Example 1: Extract Field from EventBridge Events**
+
+EventBridge events have a nested structure with metadata. Extract just the business data:
+
+```json
+// Input (SQS message body):
+{
+  "version": "0",
+  "id": "event-123",
+  "detail-type": "FlightOffersUpdate",
+  "source": "OffersService",
+  "detail": {
+    "data": {
+      "offers": [
+        {"id": "123", "price": 100.50}
+      ]
+    }
+  }
+}
+
+// Output (sent to Kafka):
+{
+  "offers": [
+    {"id": "123", "price": 100.50}
+  ]
+}
+```
+
+Configuration:
+
+```json
+{
+  "message.converter.class": "io.connect.sqs.converter.DefaultMessageConverter",
+  "message.output.field.extract": "detail.data"
+}
+```
+
+**Example 2: Combined with Decompression and Claim Check**
+
+For complex scenarios where messages are compressed and stored in S3:
+
+```json
+{
+  "message.converter.class": "io.connect.sqs.converter.DecompressingClaimCheckMessageConverter",
+  "message.decompression.field.path": "detail.data",
+  "message.decompression.format": "GZIP",
+  "message.decompression.base64.decode": "true",
+  "message.claimcheck.field.path": "detail.data",
+  "message.claimcheck.retrieve.if.uri": "true",
+  "message.output.field.extract": "detail.data",
+  "message.output.field.extract.failOnMissing": "false"
+}
+```
+
+Processing order:
+1. Retrieve from S3 if `detail.data` contains S3 URI
+2. Decompress the data if it's compressed
+3. Extract `detail.data` field from final result
+
+**Example 3: Extract Deeply Nested Fields**
+
+Use dot notation for deeply nested paths:
+
+```json
+{
+  "message.output.field.extract": "payload.body.content.actualData"
+}
+```
+
+**Example 4: Handle Missing Fields Gracefully**
+
+When `failOnMissing=false` (default), the connector returns the original message if the field doesn't exist:
+
+```json
+{
+  "message.output.field.extract": "detail.data",
+  "message.output.field.extract.failOnMissing": "false"
+}
+```
+
+**Features:**
+
+- **Dot notation paths**: Navigate nested JSON structures (e.g., `detail.data.offers`)
+- **Automatic wrapping**: No need to configure `FieldExtractorConverter` directly
+- **Graceful fallback**: Returns original message when field not found (configurable)
+- **Works with all converters**: Compatible with any message converter
+- **Preserves structure**: Extracted objects/arrays maintain their JSON structure
+- **String values**: Text nodes are returned as plain strings
+
+**Common Use Cases:**
+
+1. **EventBridge to Kafka**: Extract business data from EventBridge envelope
+2. **Standardize topics**: Multiple event types → extract common field → single topic
+3. **Remove metadata**: Strip unnecessary wrapper fields before Kafka
+4. **Field routing**: Different field paths for different processing pipelines
+
+**Performance Considerations:**
+
+- Field extraction uses Jackson's tree model (minimal overhead)
+- Extraction happens after all other processing (decompression, S3 retrieval)
+- Invalid JSON is handled gracefully when `failOnMissing=false`
+
+**Backward Compatibility:**
+
+Field extraction is optional and backward compatible. When `message.output.field.extract` is not configured, messages are sent to Kafka unchanged.
 
 ## SCRAM Authentication
 

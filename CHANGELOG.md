@@ -28,7 +28,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Integration with systems that send compressed payloads
     - High-throughput scenarios with bandwidth constraints
 
+- **Field Extraction Support**
+  - Extract nested JSON fields from converted messages before sending to Kafka
+  - Automatic wrapping of configured converters with `FieldExtractorConverter`
+  - Dot notation support for navigating nested structures (e.g., `detail.data.offers`)
+  - Graceful fallback to original message when field not found
+  - Works with all message converters (Default, Avro, Protobuf, JSON Schema, Decompressing, ClaimCheck)
+  - Configuration options:
+    - `message.output.field.extract` - JSON field path to extract
+    - `message.output.field.extract.failOnMissing` - Fail when field path not found (default: false)
+  - Use cases:
+    - Extract business data from EventBridge event envelopes
+    - Remove metadata and wrapper fields before Kafka
+    - Standardize topic output by extracting common fields
+    - Make raw.1 output match raw.0 by extracting `detail.data`
+  - Preserves JSON structure for objects/arrays
+  - Returns text nodes as plain strings
+
+### Fixed
+- **JSON Parsing in Decompression Converters**
+  - Fixed `DecompressingMessageConverter` and `DecompressingClaimCheckMessageConverter` to properly parse decompressed JSON data as objects instead of escaped strings
+  - Added `parseAsJsonOrText()` helper method to attempt JSON parsing with graceful fallback
+  - Preserves object structure for JSON data (e.g., `{"offers":[...]}` instead of `"{\"offers\":[...]}"`
+  - Maintains backward compatibility by falling back to text nodes for non-JSON content
+
 ### Testing
+- **Field Extraction Tests**
+  - 12 unit tests for `FieldExtractorConverter`
+  - 2 integration tests covering full decompression + claim check + field extraction flow
+  - Test coverage for nested fields, missing fields, invalid JSON, null values
+  - Tests for EventBridge message scenarios
+
 - **Message Decompression Tests**
   - 30+ unit tests for `MessageDecompressor` utility class
   - 15+ unit tests for `DecompressingMessageConverter`

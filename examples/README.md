@@ -243,6 +243,105 @@ Final Message to Kafka:
 
 ---
 
+### 6. Field Extraction from EventBridge Events
+
+**Use Case:** Extract only the business data from EventBridge envelope, removing metadata
+
+**SQS Message Format:**
+```json
+{
+  "version": "0",
+  "id": "event-123",
+  "detail-type": "FlightOffersUpdate",
+  "source": "OffersService",
+  "detail": {
+    "data": {
+      "offers": [
+        {"id": "456", "price": 250.00, "airline": "IB"}
+      ]
+    }
+  }
+}
+```
+
+**Output to Kafka (after field extraction):**
+```json
+{
+  "offers": [
+    {"id": "456", "price": 250.00, "airline": "IB"}
+  ]
+}
+```
+
+**Configuration:**
+See `../config/sqs-source-connector-eventbridge-field-extraction.properties`
+
+**Key Settings:**
+- `message.output.field.extract`: `detail.data` - Extracts only this field
+- `message.output.field.extract.failOnMissing`: `false` - Graceful fallback
+
+**Benefits:**
+- Makes EventBridge topic output match direct data topics
+- Removes unnecessary EventBridge metadata before Kafka
+- Standardizes message format across different sources
+
+---
+
+### 7. Complete Pipeline: Decompression + Claim Check + Field Extraction
+
+**Use Case:** Full message processing pipeline for EventBridge events with compressed data in S3
+
+**SQS Message Format:**
+```json
+{
+  "version": "0",
+  "id": "event-123",
+  "detail-type": "FlightOffersUpdate",
+  "source": "OffersService",
+  "detail": {
+    "data": "s3://my-bucket/offers/compressed-data.json.gz"
+  }
+}
+```
+
+**Processing Steps:**
+1. **Claim Check**: Retrieve content from S3 URI
+2. **Decompression**: Decompress GZIP+Base64 data
+3. **Field Extraction**: Extract `detail.data` field
+
+**Final Output to Kafka:**
+```json
+{
+  "offers": [
+    {"id": "456", "price": 250.00, "airline": "IB"}
+  ]
+}
+```
+
+**Configuration:**
+See `../config/sqs-source-connector-eventbridge-complete.properties`
+
+**Key Settings:**
+- `message.converter.class`: `DecompressingClaimCheckMessageConverter`
+- `message.decompression.field.path`: `detail.data`
+- `message.claimcheck.field.path`: `detail.data`
+- `message.output.field.extract`: `detail.data`
+
+**Complete Flow:**
+```
+SQS Message
+  ↓
+Claim Check (retrieve from S3 if URI)
+  ↓
+Decompression (decompress GZIP+Base64)
+  ↓
+Field Extraction (extract detail.data)
+  ↓
+Kafka (clean business data only)
+```
+
+---
+
 ## Deployment
 
 ### Standalone Mode
