@@ -354,6 +354,173 @@ class ClaimCheckPatternIT {
         }
     }
 
+    @Test
+    void shouldExtractFieldFromEventBridgeMessage() throws Exception {
+        // Arrange - Create EventBridge message with nested detail.data
+        String offersData = "{\"offers\":[{\"id\":\"123\",\"price\":100.50}]}";
+
+        Map<String, Object> eventBridgeMessage = new HashMap<>();
+        eventBridgeMessage.put("version", "0");
+        eventBridgeMessage.put("id", "test-event-123");
+        eventBridgeMessage.put("detail-type", "FlightOffersUpdate");
+
+        Map<String, Object> detail = new HashMap<>();
+        // Store the offers data as a parsed object (not as string)
+        detail.put("data", objectMapper.readValue(offersData, Object.class));
+        eventBridgeMessage.put("detail", detail);
+
+        String messageBody = objectMapper.writeValueAsString(eventBridgeMessage);
+
+        Message sqsMessage = Message.builder()
+                .messageId("msg-field-extract-1")
+                .receiptHandle("receipt-field-extract-1")
+                .body(messageBody)
+                .build();
+
+        // Create config with field extraction
+        Map<String, String> props = new HashMap<>();
+        props.put("sqs.queue.url", TEST_QUEUE_URL);
+        props.put("kafka.topic", "test-topic");
+        props.put("aws.region", localstack.getRegion());
+        props.put("message.converter.class", "io.connect.sqs.converter.DefaultMessageConverter");
+        props.put("message.output.field.extract", "detail.data");
+        props.put("message.output.field.extract.failOnMissing", "false");
+
+        SqsSourceConnectorConfig configWithExtraction = new SqsSourceConnectorConfig(props);
+
+        // Create FieldExtractorConverter with DefaultMessageConverter as delegate
+        io.connect.sqs.converter.FieldExtractorConverter extractor =
+                new io.connect.sqs.converter.FieldExtractorConverter();
+        io.connect.sqs.converter.DefaultMessageConverter defaultConverter =
+                new io.connect.sqs.converter.DefaultMessageConverter();
+        extractor.setDelegateConverter(defaultConverter);
+
+        // Act
+        SourceRecord record = extractor.convert(sqsMessage, configWithExtraction);
+
+        // Assert
+        assertThat(record).isNotNull();
+        assertThat(record.value()).isNotNull();
+        assertThat(record.value()).isInstanceOf(String.class);
+
+        String extractedValue = (String) record.value();
+
+        // Parse and verify the extracted value
+        JsonNode extractedNode = objectMapper.readTree(extractedValue);
+        assertThat(extractedNode.has("offers")).isTrue();
+        assertThat(extractedNode.get("offers").isArray()).isTrue();
+        assertThat(extractedNode.get("offers").size()).isEqualTo(1);
+        assertThat(extractedNode.get("offers").get(0).get("id").asText()).isEqualTo("123");
+        assertThat(extractedNode.get("offers").get(0).get("price").asDouble()).isEqualTo(100.50);
+
+        // Make sure it's ONLY the offers data (no version, detail-type, etc.)
+        assertThat(extractedNode.has("version")).isFalse();
+        assertThat(extractedNode.has("detail-type")).isFalse();
+        assertThat(extractedNode.has("detail")).isFalse();
+
+        log.info("Successfully extracted field from EventBridge message. Extracted: {}", extractedValue);
+    }
+
+    @Test
+    void shouldExtractFieldFromCompressedEventBridgeMessage() throws Exception {
+        // Arrange - Create compressed EventBridge message with nested detail.data
+        String offersData = "{\"offers\":[{\"id\":\"456\",\"price\":250.00,\"airline\":\"IB\"}]}";
+
+        // Create compressed payload stored in S3
+        byte[] compressedData = gzipCompress(offersData);
+        String base64Encoded = Base64.getEncoder().encodeToString(compressedData);
+
+        String s3Key = "compressed/offers-data.json.gz";
+        awsS3Client.putObject(
+                PutObjectRequest.builder()
+                        .bucket(TEST_BUCKET)
+                        .key(s3Key)
+                        .build(),
+                RequestBody.fromString(base64Encoded));
+
+        // Create EventBridge message with S3 URI in detail.data
+        String s3Uri = String.format("s3://%s/%s", TEST_BUCKET, s3Key);
+        Map<String, Object> eventBridgeMessage = new HashMap<>();
+        eventBridgeMessage.put("version", "0");
+        eventBridgeMessage.put("id", "test-event-456");
+
+        Map<String, Object> detail = new HashMap<>();
+        detail.put("data", s3Uri);  // S3 URI pointing to compressed data
+        eventBridgeMessage.put("detail", detail);
+
+        String messageBody = objectMapper.writeValueAsString(eventBridgeMessage);
+
+        Message sqsMessage = Message.builder()
+                .messageId("msg-field-extract-2")
+                .receiptHandle("receipt-field-extract-2")
+                .body(messageBody)
+                .build();
+
+        // Create config with decompression, claim check, and field extraction
+        Map<String, String> props = new HashMap<>();
+        props.put("sqs.queue.url", TEST_QUEUE_URL);
+        props.put("kafka.topic", "test-topic");
+        props.put("aws.region", localstack.getRegion());
+        props.put("aws.access.key.id", localstack.getAccessKey());
+        props.put("aws.secret.access.key", localstack.getSecretKey());
+        props.put("aws.endpoint.override", localstack.getEndpointOverride(S3).toString());
+        props.put("message.converter.class", "io.connect.sqs.converter.DecompressingClaimCheckMessageConverter");
+        props.put("message.claimcheck.field.path", "detail.data");
+        props.put("message.claimcheck.retrieve.from.s3.if.uri", "true");
+        props.put("message.claimcheck.decompress.after.retrieval", "true");
+        props.put("message.decompression.format", "GZIP");
+        props.put("message.decompression.try.base64.decode", "true");
+        props.put("message.output.field.extract", "detail.data");
+        props.put("message.output.field.extract.failOnMissing", "false");
+
+        SqsSourceConnectorConfig configWithAll = new SqsSourceConnectorConfig(props);
+
+        // Create the full converter chain:
+        // DefaultMessageConverter -> ClaimCheckMessageConverter -> DecompressingClaimCheckMessageConverter -> FieldExtractorConverter
+        io.connect.sqs.converter.DefaultMessageConverter defaultConverter =
+                new io.connect.sqs.converter.DefaultMessageConverter();
+
+        io.connect.sqs.converter.DecompressingClaimCheckMessageConverter decompressingConverter =
+                new io.connect.sqs.converter.DecompressingClaimCheckMessageConverter();
+        decompressingConverter.setS3Client(s3Client);
+        decompressingConverter.setFieldPath("detail.data");
+        decompressingConverter.setRetrieveFromS3IfUri(true);
+        decompressingConverter.setCompressionFormat(io.connect.sqs.util.MessageDecompressor.CompressionFormat.GZIP);
+        decompressingConverter.setTryBase64Decode(true);
+        decompressingConverter.initializeForTesting();
+        decompressingConverter.setDelegateConverter(defaultConverter);
+
+        io.connect.sqs.converter.FieldExtractorConverter extractor =
+                new io.connect.sqs.converter.FieldExtractorConverter();
+        extractor.setDelegateConverter(decompressingConverter);
+
+        // Act
+        SourceRecord record = extractor.convert(sqsMessage, configWithAll);
+
+        // Assert
+        assertThat(record).isNotNull();
+        assertThat(record.value()).isNotNull();
+        assertThat(record.value()).isInstanceOf(String.class);
+
+        String extractedValue = (String) record.value();
+
+        // Parse and verify the extracted value
+        JsonNode extractedNode = objectMapper.readTree(extractedValue);
+        assertThat(extractedNode.has("offers")).isTrue();
+        assertThat(extractedNode.get("offers").isArray()).isTrue();
+        assertThat(extractedNode.get("offers").size()).isEqualTo(1);
+        assertThat(extractedNode.get("offers").get(0).get("id").asText()).isEqualTo("456");
+        assertThat(extractedNode.get("offers").get(0).get("price").asDouble()).isEqualTo(250.00);
+        assertThat(extractedNode.get("offers").get(0).get("airline").asText()).isEqualTo("IB");
+
+        // Make sure it's ONLY the offers data (no EventBridge envelope)
+        assertThat(extractedNode.has("version")).isFalse();
+        assertThat(extractedNode.has("id")).isFalse();
+        assertThat(extractedNode.has("detail")).isFalse();
+
+        log.info("Successfully extracted field from compressed EventBridge message with S3 claim check. Extracted: {}", extractedValue);
+    }
+
     // Helper methods
 
     private byte[] gzipCompress(String data) throws Exception {

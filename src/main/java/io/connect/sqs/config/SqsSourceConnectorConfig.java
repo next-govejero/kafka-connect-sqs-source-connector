@@ -219,6 +219,14 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
     private static final String MESSAGE_CLAIMCHECK_BASE64_DECODE_DOC = "Attempt to Base64-decode S3 content before decompression. Only used when message.claimcheck.decompress.enabled is true.";
     private static final boolean MESSAGE_CLAIMCHECK_BASE64_DECODE_DEFAULT = true;
 
+    // Message Output Field Extraction Configuration
+    public static final String MESSAGE_OUTPUT_FIELD_EXTRACT_CONFIG = "message.output.field.extract";
+    private static final String MESSAGE_OUTPUT_FIELD_EXTRACT_DOC = "JSON field path to extract from the final converted message before sending to Kafka (e.g., 'detail.data'). If not specified, sends the entire message. Use dot notation for nested fields.";
+
+    public static final String MESSAGE_OUTPUT_FIELD_EXTRACT_FAIL_ON_MISSING_CONFIG = "message.output.field.extract.failOnMissing";
+    private static final String MESSAGE_OUTPUT_FIELD_EXTRACT_FAIL_ON_MISSING_DOC = "If true, fails when the specified field path does not exist. If false, returns the original message when field is missing.";
+    private static final boolean MESSAGE_OUTPUT_FIELD_EXTRACT_FAIL_ON_MISSING_DEFAULT = false;
+
     public static final ConfigDef CONFIG_DEF = createConfigDef();
 
     private static ConfigDef createConfigDef() {
@@ -906,6 +914,34 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
                 "Base64 Decode Enabled"
         );
 
+        // Output Field Extraction Group
+        final String outputGroup = "Output Field Extraction";
+        int outputGroupOrder = 0;
+
+        configDef.define(
+                MESSAGE_OUTPUT_FIELD_EXTRACT_CONFIG,
+                Type.STRING,
+                null,
+                Importance.LOW,
+                MESSAGE_OUTPUT_FIELD_EXTRACT_DOC,
+                outputGroup,
+                ++outputGroupOrder,
+                Width.LONG,
+                "Output Field Path"
+        );
+
+        configDef.define(
+                MESSAGE_OUTPUT_FIELD_EXTRACT_FAIL_ON_MISSING_CONFIG,
+                Type.BOOLEAN,
+                MESSAGE_OUTPUT_FIELD_EXTRACT_FAIL_ON_MISSING_DEFAULT,
+                Importance.LOW,
+                MESSAGE_OUTPUT_FIELD_EXTRACT_FAIL_ON_MISSING_DOC,
+                outputGroup,
+                ++outputGroupOrder,
+                Width.SHORT,
+                "Fail on Missing Field"
+        );
+
         return configDef;
     }
 
@@ -1265,6 +1301,15 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
 
     public boolean isMessageClaimCheckBase64DecodeEnabled() {
         return getBoolean(MESSAGE_CLAIMCHECK_BASE64_DECODE_CONFIG);
+    }
+
+    // Output Field Extraction getters
+    public String getMessageOutputFieldExtract() {
+        return getString(MESSAGE_OUTPUT_FIELD_EXTRACT_CONFIG);
+    }
+
+    public boolean isMessageOutputFieldExtractFailOnMissing() {
+        return getBoolean(MESSAGE_OUTPUT_FIELD_EXTRACT_FAIL_ON_MISSING_CONFIG);
     }
 }
 

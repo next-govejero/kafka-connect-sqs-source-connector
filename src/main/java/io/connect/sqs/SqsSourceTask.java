@@ -282,7 +282,19 @@ public class SqsSourceTask extends SourceTask {
         try {
             String converterClassName = config.getMessageConverterClass();
             Class<?> converterClass = Class.forName(converterClassName);
-            return (MessageConverter) converterClass.getDeclaredConstructor().newInstance();
+            MessageConverter baseConverter = (MessageConverter) converterClass.getDeclaredConstructor().newInstance();
+
+            // Wrap with FieldExtractorConverter if field extraction is configured
+            String extractFieldPath = config.getMessageOutputFieldExtract();
+            if (extractFieldPath != null && !extractFieldPath.trim().isEmpty()) {
+                log.info("Wrapping converter with FieldExtractorConverter for field path: {}", extractFieldPath);
+                io.connect.sqs.converter.FieldExtractorConverter extractor =
+                        new io.connect.sqs.converter.FieldExtractorConverter();
+                extractor.setDelegateConverter(baseConverter);
+                return extractor;
+            }
+
+            return baseConverter;
         } catch (Exception e) {
             log.error("Failed to create message converter, using default", e);
             throw new ConnectException("Failed to create message converter", e);
