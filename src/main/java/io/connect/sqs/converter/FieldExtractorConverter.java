@@ -37,7 +37,8 @@ public class FieldExtractorConverter implements MessageConverter {
 
     @Override
     public SourceRecord convert(Message message, SqsSourceConnectorConfig config) {
-        if (delegateConverter == null) {
+        // Initialize on first call
+        if (fieldPath == null) {
             initialize(config);
         }
 
