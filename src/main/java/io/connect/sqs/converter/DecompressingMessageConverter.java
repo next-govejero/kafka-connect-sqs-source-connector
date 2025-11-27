@@ -158,7 +158,9 @@ public class DecompressingMessageConverter implements MessageConverter {
 
             // Replace the field value with decompressed value
             if (parentNode instanceof ObjectNode && lastKey != null) {
-                ((ObjectNode) parentNode).set(lastKey, new TextNode(decompressedValue));
+                // Try to parse as JSON first, if it fails, treat as plain text
+                JsonNode valueNode = parseAsJsonOrText(decompressedValue);
+                ((ObjectNode) parentNode).set(lastKey, valueNode);
             }
 
             // Return the modified JSON
@@ -167,6 +169,21 @@ public class DecompressingMessageConverter implements MessageConverter {
         } catch (IOException e) {
             log.error("Failed to process JSON for field path decompression: {}", e.getMessage());
             throw e;
+        }
+    }
+
+    /**
+     * Attempts to parse a string as JSON. If successful, returns the parsed JsonNode.
+     * If parsing fails (not valid JSON), returns a TextNode containing the original string.
+     */
+    private JsonNode parseAsJsonOrText(String value) {
+        try {
+            // Try to parse as JSON
+            return objectMapper.readTree(value);
+        } catch (IOException e) {
+            // Not valid JSON, return as text
+            log.debug("Value is not valid JSON, treating as plain text");
+            return new TextNode(value);
         }
     }
 

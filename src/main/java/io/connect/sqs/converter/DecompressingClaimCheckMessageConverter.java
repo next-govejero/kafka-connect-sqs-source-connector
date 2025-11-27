@@ -169,7 +169,9 @@ public class DecompressingClaimCheckMessageConverter implements MessageConverter
 
             // Replace the field value with processed value
             if (parentNode instanceof ObjectNode && lastKey != null) {
-                ((ObjectNode) parentNode).set(lastKey, new TextNode(finalValue));
+                // Try to parse as JSON first, if it fails, treat as plain text
+                JsonNode valueNode = parseAsJsonOrText(finalValue);
+                ((ObjectNode) parentNode).set(lastKey, valueNode);
             }
 
             // Return the modified JSON
@@ -201,6 +203,21 @@ public class DecompressingClaimCheckMessageConverter implements MessageConverter
         String contentAsString = new String(s3Content, StandardCharsets.UTF_8);
         log.debug("Successfully retrieved {} bytes from S3", s3Content.length);
         return contentAsString;
+    }
+
+    /**
+     * Attempts to parse a string as JSON. If successful, returns the parsed JsonNode.
+     * If parsing fails (not valid JSON), returns a TextNode containing the original string.
+     */
+    private JsonNode parseAsJsonOrText(String value) {
+        try {
+            // Try to parse as JSON
+            return objectMapper.readTree(value);
+        } catch (IOException e) {
+            // Not valid JSON, return as text
+            log.debug("Value is not valid JSON, treating as plain text");
+            return new TextNode(value);
+        }
     }
 
     /**
