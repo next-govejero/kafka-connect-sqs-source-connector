@@ -45,6 +45,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Preserves JSON structure for objects/arrays
   - Returns text nodes as plain strings
 
+- **Large Message Support & High-Throughput Documentation**
+  - Comprehensive documentation for handling messages >1MB
+  - Kafka Connect worker producer configuration guide
+  - RecordTooLargeException troubleshooting
+  - High-throughput configuration (1500+ msg/sec)
+  - Multi-queue parallel processing documentation
+  - Example worker configuration file: `config/kafka-connect-worker-high-performance.properties`
+  - Performance tuning guide with throughput calculations
+  - Configuration requirements:
+    - `producer.max.request.size`: 10MB+ for large messages
+    - `producer.buffer.memory`: 64MB+ for high throughput
+    - `producer.compression.type`: snappy (recommended)
+    - `producer.batch.size`: 256KB+ for better batching
+    - `producer.linger.ms`: 10ms+ for improved throughput
+  - Use cases documented:
+    - EventBridge messages with S3 claim check (1-5MB typical)
+    - Decompressed payloads expanding beyond 1MB
+    - High-throughput scenarios with 15+ parallel tasks
+
 ### Fixed
 - **JSON Parsing in Decompression Converters**
   - Fixed `DecompressingMessageConverter` and `DecompressingClaimCheckMessageConverter` to properly parse decompressed JSON data as objects instead of escaped strings

@@ -1038,7 +1038,72 @@ sqs.wait.time.seconds=1
 poll.interval.ms=100
 ```
 
-### Handle Large Messages
+### Handling Large Messages
+
+When processing large messages (>1MB) with decompression, claim check, or field extraction, you must increase Kafka Connect's producer limits in the **worker configuration**.
+
+**Problem:** `RecordTooLargeException: The message is X bytes when serialized which is larger than 1048576`
+
+**Solution:** Edit your Kafka Connect worker properties file (e.g., `connect-distributed.properties` or `connect-standalone.properties`):
+
+```properties
+# Support messages up to 10MB
+producer.max.request.size=10485760
+producer.buffer.memory=67108864
+
+# Optional: Enable compression to reduce network usage
+producer.compression.type=snappy
+producer.batch.size=262144
+producer.linger.ms=10
+```
+
+**Common scenarios requiring large message support:**
+- EventBridge messages with compressed S3 data (detail.data decompression)
+- Claim check pattern retrieving large S3 objects
+- Decompressed messages expanding to >1MB after GZIP decompression
+- Field extraction from large nested payloads
+
+**Important Notes:**
+- These settings go in the **Kafka Connect worker configuration**, NOT in the connector configuration
+- You must restart the Kafka Connect worker after changing these settings
+- All connectors on that worker will inherit these settings
+- If messages exceed 10MB, increase `producer.max.request.size` further (e.g., 20MB, 50MB)
+
+**Kafka Broker Configuration (if needed):**
+
+If you're still seeing errors after updating the worker config, you may also need to increase limits on the Kafka brokers:
+
+```properties
+# In Kafka broker server.properties
+message.max.bytes=10485760
+replica.fetch.max.bytes=10485760
+```
+
+**For High-Throughput Scenarios (1500+ msg/sec):**
+
+Combine large message support with multi-queue parallel processing:
+
+```properties
+# Worker configuration (connect-distributed.properties)
+producer.max.request.size=10485760
+producer.buffer.memory=67108864
+producer.compression.type=snappy
+producer.batch.size=262144
+producer.linger.ms=10
+
+# Connector configuration
+tasks.max=15
+sqs.queue.urls=https://sqs.region.amazonaws.com/account/queue-0,...queue-14
+sqs.max.messages=10
+poll.interval.ms=50
+```
+
+This configuration supports:
+- Large messages up to 10MB
+- Throughput of 1500+ messages/second
+- 15 parallel tasks for distributed processing
+
+### Adjust SQS Visibility Timeout
 
 Adjust visibility timeout to allow processing time:
 
