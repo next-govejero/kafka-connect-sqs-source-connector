@@ -42,7 +42,7 @@
         <mockito.version>5.20.0</mockito.version>
         <assertj.version>3.27.6</assertj.version>
         <testcontainers.version>1.21.3</testcontainers.version>
-        <confluent.version>7.5.0</confluent.version>
+        <confluent.version>8.1.0</confluent.version>
         <avro.version>1.11.3</avro.version>
         <protobuf.version>3.25.1</protobuf.version>
         <jackson.version>2.15.3</jackson.version>
