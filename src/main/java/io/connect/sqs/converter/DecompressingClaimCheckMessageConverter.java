@@ -30,9 +30,11 @@ import java.util.List;
  * - GZIP + Base64 encoded S3 URI (claim check reference)
  *
  * Usage:
- * Set message.converter.class=io.connect.sqs.converter.DecompressingClaimCheckMessageConverter
+ * Set
+ * message.converter.class=io.connect.sqs.converter.DecompressingClaimCheckMessageConverter
  * Set message.decompression.field.path=detail.data
- * Set message.decompression.delegate.converter.class=io.connect.sqs.converter.DefaultMessageConverter
+ * Set
+ * message.decompression.delegate.converter.class=io.connect.sqs.converter.DefaultMessageConverter
  */
 public class DecompressingClaimCheckMessageConverter implements MessageConverter {
 
@@ -99,7 +101,8 @@ public class DecompressingClaimCheckMessageConverter implements MessageConverter
         try {
             Class<?> converterClass = Class.forName(delegateClass);
             this.delegateConverter = (MessageConverter) converterClass.getDeclaredConstructor().newInstance();
-            log.info("Initialized DecompressingClaimCheckMessageConverter with delegate: {}, fieldPath: {}, format: {}, S3 retrieval: {}",
+            log.info(
+                    "Initialized DecompressingClaimCheckMessageConverter with delegate: {}, fieldPath: {}, format: {}, S3 retrieval: {}",
                     delegateClass, fieldPath, compressionFormat, retrieveFromS3IfUri);
         } catch (Exception e) {
             throw new ConnectException("Failed to instantiate delegate converter: " + delegateClass, e);
@@ -107,9 +110,11 @@ public class DecompressingClaimCheckMessageConverter implements MessageConverter
     }
 
     /**
-     * Decompresses data at field path, then checks if it's an S3 URI and retrieves if needed.
+     * Decompresses data at field path, then checks if it's an S3 URI and retrieves
+     * if needed.
      */
-    private String decompressAndMaybeRetrieveFromS3(String messageBody, SqsSourceConnectorConfig config) throws IOException {
+    private String decompressAndMaybeRetrieveFromS3(String messageBody, SqsSourceConnectorConfig config)
+            throws IOException {
         if (messageBody == null || messageBody.isEmpty()) {
             return messageBody;
         }
@@ -151,17 +156,29 @@ public class DecompressingClaimCheckMessageConverter implements MessageConverter
                 return messageBody;
             }
 
-            // Step 1: Decompress the field value
-            String compressedValue = currentNode.asText();
+            // Step 1: Check if the field value is an S3 URI directly
+            String currentValue = currentNode.asText();
+            boolean retrievedFromS3 = false;
+
+            if (retrieveFromS3IfUri && isS3Uri(currentValue)) {
+                log.info("Field value is an S3 URI: {}", currentValue);
+                currentValue = retrieveFromS3(currentValue);
+                retrievedFromS3 = true;
+            }
+
+            // Step 2: Decompress the field value (original or retrieved)
             log.debug("Decompressing field at path: {}", fieldPath);
-            String decompressedValue = MessageDecompressor.decompress(compressedValue, compressionFormat, tryBase64Decode);
+            String decompressedValue = MessageDecompressor.decompress(currentValue, compressionFormat, tryBase64Decode);
 
             log.debug("Decompressed content (first 100 chars): {}",
                     decompressedValue.length() > 100 ? decompressedValue.substring(0, 100) + "..." : decompressedValue);
 
-            // Step 2: Check if decompressed value is an S3 URI
+            // Step 3: Check if decompressed value is an S3 URI (only if we didn't already
+            // retrieve from S3, or if we support recursive?)
+            // The original logic supported: Compressed -> Decompress -> S3 URI -> Retrieve
+            // We should preserve that.
             String finalValue = decompressedValue;
-            if (retrieveFromS3IfUri && isS3Uri(decompressedValue)) {
+            if (!retrievedFromS3 && retrieveFromS3IfUri && isS3Uri(decompressedValue)) {
                 log.info("Decompressed content is an S3 URI: {}", decompressedValue.trim());
                 finalValue = retrieveFromS3(decompressedValue.trim());
                 log.debug("Retrieved {} bytes from S3", finalValue.length());
@@ -206,8 +223,10 @@ public class DecompressingClaimCheckMessageConverter implements MessageConverter
     }
 
     /**
-     * Attempts to parse a string as JSON. If successful, returns the parsed JsonNode.
-     * If parsing fails (not valid JSON), returns a TextNode containing the original string.
+     * Attempts to parse a string as JSON. If successful, returns the parsed
+     * JsonNode.
+     * If parsing fails (not valid JSON), returns a TextNode containing the original
+     * string.
      */
     private JsonNode parseAsJsonOrText(String value) {
         try {
@@ -245,7 +264,8 @@ public class DecompressingClaimCheckMessageConverter implements MessageConverter
      * Sets the compression format (useful for testing).
      */
     public void setCompressionFormat(MessageDecompressor.CompressionFormat compressionFormat) {
-        this.compressionFormat = compressionFormat != null ? compressionFormat : MessageDecompressor.CompressionFormat.AUTO;
+        this.compressionFormat = compressionFormat != null ? compressionFormat
+                : MessageDecompressor.CompressionFormat.AUTO;
     }
 
     /**
@@ -256,7 +276,8 @@ public class DecompressingClaimCheckMessageConverter implements MessageConverter
     }
 
     /**
-     * Sets whether to retrieve from S3 if decompressed content is an S3 URI (useful for testing).
+     * Sets whether to retrieve from S3 if decompressed content is an S3 URI (useful
+     * for testing).
      */
     public void setRetrieveFromS3IfUri(boolean retrieveFromS3IfUri) {
         this.retrieveFromS3IfUri = retrieveFromS3IfUri;
