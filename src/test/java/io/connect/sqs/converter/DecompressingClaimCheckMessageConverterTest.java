@@ -45,9 +45,8 @@ class DecompressingClaimCheckMessageConverterTest {
         String base64Encoded = Base64.getEncoder().encodeToString(gzippedData);
 
         String messageBody = String.format(
-            "{\"version\":\"0\",\"detail-type\":\"PriceCache.Updated\",\"detail\":{\"data\":\"%s\"}}",
-            base64Encoded
-        );
+                "{\"version\":\"0\",\"detail-type\":\"PriceCache.Updated\",\"detail\":{\"data\":\"%s\"}}",
+                base64Encoded);
 
         Message sqsMessage = createMessage("msg-1", messageBody);
         config = createConfig();
@@ -80,9 +79,8 @@ class DecompressingClaimCheckMessageConverterTest {
         String base64Encoded = Base64.getEncoder().encodeToString(gzippedS3Uri);
 
         String messageBody = String.format(
-            "{\"version\":\"0\",\"detail-type\":\"PriceCache.Updated\",\"detail\":{\"data\":\"%s\"}}",
-            base64Encoded
-        );
+                "{\"version\":\"0\",\"detail-type\":\"PriceCache.Updated\",\"detail\":{\"data\":\"%s\"}}",
+                base64Encoded);
 
         // Mock S3 content
         String s3Content = "{\"price\":200,\"currency\":\"EUR\"}";
@@ -121,9 +119,8 @@ class DecompressingClaimCheckMessageConverterTest {
         String base64Encoded = Base64.getEncoder().encodeToString(gzippedData);
 
         String messageBody = String.format(
-            "{\"detail\":{\"data\":\"%s\"}}",
-            base64Encoded
-        );
+                "{\"detail\":{\"data\":\"%s\"}}",
+                base64Encoded);
 
         Message sqsMessage = createMessage("msg-1", messageBody);
         config = createConfig();
@@ -208,9 +205,8 @@ class DecompressingClaimCheckMessageConverterTest {
         String base64Encoded = Base64.getEncoder().encodeToString(gzippedS3Uri);
 
         String messageBody = String.format(
-            "{\"detail\":{\"data\":\"%s\"}}",
-            base64Encoded
-        );
+                "{\"detail\":{\"data\":\"%s\"}}",
+                base64Encoded);
 
         Message sqsMessage = createMessage("msg-1", messageBody);
         config = createConfig();
@@ -243,9 +239,8 @@ class DecompressingClaimCheckMessageConverterTest {
         String base64Encoded = Base64.getEncoder().encodeToString(gzippedData);
 
         String messageBody = String.format(
-            "{\"level1\":{\"level2\":{\"level3\":{\"data\":\"%s\"}}}}",
-            base64Encoded
-        );
+                "{\"level1\":{\"level2\":{\"level3\":{\"data\":\"%s\"}}}}",
+                base64Encoded);
 
         Message sqsMessage = createMessage("msg-1", messageBody);
         config = createConfig();
@@ -267,6 +262,92 @@ class DecompressingClaimCheckMessageConverterTest {
         // Assert
         assertThat(result).isEqualTo(expectedRecord);
         verify(mockDelegateConverter).convert(any(Message.class), any(SqsSourceConnectorConfig.class));
+    }
+
+    @Test
+    void testS3AccessFailure() throws IOException {
+        // Arrange - Compressed S3 URI
+        String s3Uri = "s3://my-bucket/missing-data.json";
+        byte[] gzippedS3Uri = gzipCompress(s3Uri);
+        String base64Encoded = Base64.getEncoder().encodeToString(gzippedS3Uri);
+
+        String messageBody = String.format(
+                "{\"detail\":{\"data\":\"%s\"}}",
+                base64Encoded);
+
+        Message sqsMessage = createMessage("msg-1", messageBody);
+        config = createConfig();
+
+        // Mock S3 failure
+        when(mockS3Client.getObjectByUri(eq(s3Uri)))
+                .thenThrow(new IOException("S3 access denied or network error"));
+
+        converter.setDelegateConverter(mockDelegateConverter);
+        converter.setS3Client(mockS3Client);
+        converter.setFieldPath("detail.data");
+        converter.setCompressionFormat(MessageDecompressor.CompressionFormat.GZIP);
+        converter.setTryBase64Decode(true);
+        converter.setRetrieveFromS3IfUri(true);
+        converter.initializeForTesting();
+
+        // Act & Assert
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> converter.convert(sqsMessage, config))
+                .isInstanceOf(org.apache.kafka.connect.errors.ConnectException.class)
+                .hasMessageContaining("Decompressing claim check processing failed")
+                .hasRootCauseInstanceOf(IOException.class);
+
+        verify(mockS3Client).getObjectByUri(eq(s3Uri));
+    }
+
+    @Test
+    void testMalformedBase64() {
+        // Arrange - Invalid Base64
+        String invalidBase64 = "NotValidBase64!!";
+
+        String messageBody = String.format(
+                "{\"detail\":{\"data\":\"%s\"}}",
+                invalidBase64);
+
+        Message sqsMessage = createMessage("msg-1", messageBody);
+        config = createConfig();
+
+        converter.setDelegateConverter(mockDelegateConverter);
+        converter.setS3Client(mockS3Client);
+        converter.setFieldPath("detail.data");
+        converter.setCompressionFormat(MessageDecompressor.CompressionFormat.GZIP);
+        converter.setTryBase64Decode(true);
+        converter.initializeForTesting();
+
+        // Act & Assert
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> converter.convert(sqsMessage, config))
+                .isInstanceOf(org.apache.kafka.connect.errors.ConnectException.class)
+                .hasMessageContaining("Decompressing claim check processing failed");
+    }
+
+    @Test
+    void testMalformedGzip() {
+        // Arrange - Valid Base64 but invalid GZIP content
+        String validBase64InvalidGzip = Base64.getEncoder()
+                .encodeToString("NotGzippedContent".getBytes(StandardCharsets.UTF_8));
+
+        String messageBody = String.format(
+                "{\"detail\":{\"data\":\"%s\"}}",
+                validBase64InvalidGzip);
+
+        Message sqsMessage = createMessage("msg-1", messageBody);
+        config = createConfig();
+
+        converter.setDelegateConverter(mockDelegateConverter);
+        converter.setS3Client(mockS3Client);
+        converter.setFieldPath("detail.data");
+        converter.setCompressionFormat(MessageDecompressor.CompressionFormat.GZIP);
+        converter.setTryBase64Decode(true);
+        converter.initializeForTesting();
+
+        // Act & Assert
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> converter.convert(sqsMessage, config))
+                .isInstanceOf(org.apache.kafka.connect.errors.ConnectException.class)
+                .hasMessageContaining("Decompressing claim check processing failed");
     }
 
     // Helper methods
