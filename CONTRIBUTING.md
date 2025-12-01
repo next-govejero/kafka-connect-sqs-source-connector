@@ -35,9 +35,10 @@ We welcome feature suggestions! Please:
 
 #### Before You Start
 
-1. **Discuss major changes**: Open an issue first for significant features or architectural changes
-2. **Check existing PRs**: Avoid duplicate work
-3. **Fork the repository**: Create your fork for development
+1. **Read the quickstart guide**: See [QUICKSTART.md](QUICKSTART.md) to understand the codebase (30 minutes)
+2. **Discuss major changes**: Open an issue first for significant features or architectural changes
+3. **Check existing PRs**: Avoid duplicate work
+4. **Fork the repository**: Create your fork for development
 
 #### Development Workflow
 

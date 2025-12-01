@@ -8,6 +8,8 @@ A production-ready Kafka Connect source connector that streams messages from AWS
 
 **Test Coverage: ~85%+** with comprehensive unit and integration tests.
 
+**👨‍💻 New to the codebase?** See [QUICKSTART.md](QUICKSTART.md) for a developer guide to understand the code in 30 minutes.
+
 ## Features
 
 - **Schema Registry Support**: Enterprise-grade schema validation with Avro, Protobuf, and JSON Schema converters
