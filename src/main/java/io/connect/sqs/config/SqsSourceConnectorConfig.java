@@ -6,17 +6,23 @@ import org.apache.kafka.common.config.ConfigDef.Importance;
 import org.apache.kafka.common.config.ConfigDef.Type;
 import org.apache.kafka.common.config.ConfigDef.Width;
 import org.apache.kafka.common.config.ConfigException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * Configuration for the SQS Source Connector.
  */
 public class SqsSourceConnectorConfig extends AbstractConfig {
+
+    private static final Logger log = LoggerFactory.getLogger(SqsSourceConnectorConfig.class);
 
     // AWS Configuration
     public static final String AWS_REGION_CONFIG = "aws.region";
@@ -1052,16 +1058,36 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
      * Gets the list of SQS queue URLs configured for multi-queue mode.
      * If sqs.queue.urls is not set but sqs.queue.url is set, returns a single-element list.
      * This provides backward compatibility with single-queue configuration.
+     * <p>
+     * Duplicate URLs are automatically deduplicated with a warning. Duplicating queue URLs
+     * does not increase throughput - use tasks.max > 1 for parallel processing instead.
      *
-     * @return List of queue URLs, never null or empty
+     * @return List of unique queue URLs, never null or empty
      */
     public List<String> getQueueUrls() {
         String queueUrls = getString(SQS_QUEUE_URLS_CONFIG);
         if (queueUrls != null && !queueUrls.trim().isEmpty()) {
-            return Arrays.stream(queueUrls.split(","))
+            List<String> urls = Arrays.stream(queueUrls.split(","))
                     .map(String::trim)
                     .filter(url -> !url.isEmpty())
                     .collect(Collectors.toList());
+
+            // Deduplicate URLs using LinkedHashSet to preserve order
+            Set<String> uniqueUrls = new LinkedHashSet<>(urls);
+            if (uniqueUrls.size() < urls.size()) {
+                int duplicates = urls.size() - uniqueUrls.size();
+                log.warn(
+                    "Detected {} duplicate queue URL(s) in configuration. "
+                    + "Duplicating URLs does not increase throughput - "
+                    + "SQS distributes messages atomically across pollers. "
+                    + "Original count: {}, unique count: {}. "
+                    + "To scale processing on a single queue, use tasks.max > 1. "
+                    + "See documentation for throughput scaling guidance.",
+                    duplicates, urls.size(), uniqueUrls.size()
+                );
+            }
+
+            return new ArrayList<>(uniqueUrls);
         }
 
         // Fallback to single queue URL for backward compatibility
