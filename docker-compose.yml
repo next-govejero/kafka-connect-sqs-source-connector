@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
+    image: confluentinc/cp-zookeeper:7.9.0
     hostname: zookeeper
     container_name: sqs-connector-zookeeper
     ports:
@@ -14,7 +14,7 @@ services:
       - kafka-network
 
   kafka:
-    image: confluentinc/cp-kafka:7.5.0
+    image: confluentinc/cp-kafka:7.9.0
     hostname: kafka
     container_name: sqs-connector-kafka
     depends_on:
@@ -45,7 +45,7 @@ services:
       - kafka-network
 
   kafka-setup:
-    image: confluentinc/cp-kafka:7.5.0
+    image: confluentinc/cp-kafka:7.9.0
     container_name: sqs-connector-kafka-setup
     depends_on:
       - kafka
