@@ -81,14 +81,47 @@ public class SqsSourceConnector extends SourceConnector {
             throw new ConfigException("No SQS queue URLs configured");
         }
 
+        int numQueues = queueUrls.size();
+
+        // Single-queue multi-task mode: enable parallel processing on one queue
+        if (numQueues == 1 && maxTasks > 1) {
+            String queueUrl = queueUrls.get(0);
+            log.info("Single-queue multi-task mode: Creating {} tasks for queue: {}",
+                     maxTasks, queueUrl);
+            log.info("Multiple tasks will poll the same queue in parallel for increased throughput.");
+            log.info("This is beneficial when:");
+            log.info("  - Message processing is CPU-intensive " +
+                     "(decompression, schema validation, transformations)");
+            log.info("  - Downstream operations have latency (DLQ writes, retries)");
+            log.info("  - Messages are independent and order doesn't matter");
+
+            if (queueUrl.endsWith(".fifo")) {
+                log.warn("FIFO queue detected with {} parallel tasks: " +
+                         "ordering guarantees apply per MessageGroupId", maxTasks);
+                log.warn("Messages with the same MessageGroupId maintain order, " +
+                         "but different groups may be processed by different tasks");
+            }
+
+            for (int i = 0; i < maxTasks; i++) {
+                Map<String, String> taskConfig = new HashMap<>(configProps);
+                taskConfig.put(SqsSourceConnectorConfig.SQS_QUEUE_URL_CONFIG, queueUrl);
+                taskConfig.remove(SqsSourceConnectorConfig.SQS_QUEUE_URLS_CONFIG);
+                taskConfigs.add(taskConfig);
+                log.info("Task {} assigned to queue: {} (parallel processing)", i, queueUrl);
+            }
+
+            log.info("Created {} task(s) for parallel processing of single queue", taskConfigs.size());
+            return taskConfigs;
+        }
+
         // Multi-queue support: create one task per queue URL
         // Each task gets its own queue to process, enabling parallel consumption
-        int numQueues = queueUrls.size();
         int numTasks = Math.min(numQueues, maxTasks);
 
         if (numTasks < numQueues) {
             log.warn("maxTasks ({}) is less than number of queues ({}). " +
-                     "Some tasks will process multiple queues.", maxTasks, numQueues);
+                     "Some queues will NOT be processed. Increase tasks.max to {}",
+                     maxTasks, numQueues, numQueues);
         }
 
         // Distribute queues across tasks

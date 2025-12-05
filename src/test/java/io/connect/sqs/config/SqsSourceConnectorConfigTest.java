@@ -4,6 +4,7 @@ import org.apache.kafka.common.config.ConfigException;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -151,6 +152,163 @@ class SqsSourceConnectorConfigTest {
         SqsSourceConnectorConfig config = new SqsSourceConnectorConfig(props);
 
         assertThat(config.getMessageConverterClass()).isEqualTo("com.example.CustomConverter");
+    }
+
+    @Test
+    void shouldDeduplicateIdenticalQueueUrls() {
+        Map<String, String> props = getMinimalConfig();
+        props.remove(SqsSourceConnectorConfig.SQS_QUEUE_URL_CONFIG);
+        props.put(SqsSourceConnectorConfig.SQS_QUEUE_URLS_CONFIG,
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1," +
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1," +
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue2");
+
+        SqsSourceConnectorConfig config = new SqsSourceConnectorConfig(props);
+        List<String> urls = config.getQueueUrls();
+
+        // Should deduplicate to 2 unique URLs
+        assertThat(urls).hasSize(2);
+        assertThat(urls).containsExactly(
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1",
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue2"
+        );
+    }
+
+    @Test
+    void shouldPreserveOrderWhenDeduplicating() {
+        Map<String, String> props = getMinimalConfig();
+        props.remove(SqsSourceConnectorConfig.SQS_QUEUE_URL_CONFIG);
+        props.put(SqsSourceConnectorConfig.SQS_QUEUE_URLS_CONFIG,
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1," +
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue2," +
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1," +
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue3");
+
+        SqsSourceConnectorConfig config = new SqsSourceConnectorConfig(props);
+        List<String> urls = config.getQueueUrls();
+
+        // Should preserve first occurrence order
+        assertThat(urls).hasSize(3);
+        assertThat(urls).containsExactly(
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1",
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue2",
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue3"
+        );
+    }
+
+    @Test
+    void shouldHandleAllDuplicateUrls() {
+        Map<String, String> props = getMinimalConfig();
+        props.remove(SqsSourceConnectorConfig.SQS_QUEUE_URL_CONFIG);
+        props.put(SqsSourceConnectorConfig.SQS_QUEUE_URLS_CONFIG,
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1," +
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1," +
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1," +
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1," +
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1");
+
+        SqsSourceConnectorConfig config = new SqsSourceConnectorConfig(props);
+        List<String> urls = config.getQueueUrls();
+
+        // Should deduplicate to single URL
+        assertThat(urls).hasSize(1);
+        assertThat(urls).containsExactly(
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1"
+        );
+    }
+
+    @Test
+    void shouldNotAffectUniqueUrls() {
+        Map<String, String> props = getMinimalConfig();
+        props.remove(SqsSourceConnectorConfig.SQS_QUEUE_URL_CONFIG);
+        props.put(SqsSourceConnectorConfig.SQS_QUEUE_URLS_CONFIG,
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1," +
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue2," +
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue3");
+
+        SqsSourceConnectorConfig config = new SqsSourceConnectorConfig(props);
+        List<String> urls = config.getQueueUrls();
+
+        // All unique URLs should remain unchanged
+        assertThat(urls).hasSize(3);
+        assertThat(urls).containsExactly(
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1",
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue2",
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue3"
+        );
+    }
+
+    @Test
+    void shouldHandleEmptyAndWhitespaceUrls() {
+        Map<String, String> props = getMinimalConfig();
+        props.remove(SqsSourceConnectorConfig.SQS_QUEUE_URL_CONFIG);
+        props.put(SqsSourceConnectorConfig.SQS_QUEUE_URLS_CONFIG,
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1, , " +
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1,  ," +
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue2");
+
+        SqsSourceConnectorConfig config = new SqsSourceConnectorConfig(props);
+        List<String> urls = config.getQueueUrls();
+
+        // Should filter empty and deduplicate
+        assertThat(urls).hasSize(2);
+        assertThat(urls).containsExactly(
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1",
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue2"
+        );
+    }
+
+    @Test
+    void shouldFallbackToSingleUrlWhenQueueUrlsEmpty() {
+        Map<String, String> props = getMinimalConfig();
+        props.put(SqsSourceConnectorConfig.SQS_QUEUE_URLS_CONFIG, "");
+
+        SqsSourceConnectorConfig config = new SqsSourceConnectorConfig(props);
+        List<String> urls = config.getQueueUrls();
+
+        // Should fallback to sqs.queue.url
+        assertThat(urls).hasSize(1);
+        assertThat(urls).containsExactly(
+                "https://sqs.us-east-1.amazonaws.com/123456789012/test-queue"
+        );
+    }
+
+    @Test
+    void shouldHandleUrlsWithTrailingCommas() {
+        Map<String, String> props = getMinimalConfig();
+        props.remove(SqsSourceConnectorConfig.SQS_QUEUE_URL_CONFIG);
+        props.put(SqsSourceConnectorConfig.SQS_QUEUE_URLS_CONFIG,
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1," +
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue2,");
+
+        SqsSourceConnectorConfig config = new SqsSourceConnectorConfig(props);
+        List<String> urls = config.getQueueUrls();
+
+        // Should properly clean trailing commas
+        assertThat(urls).hasSize(2);
+        assertThat(urls).containsExactly(
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1",
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue2"
+        );
+    }
+
+    @Test
+    void shouldHandleUrlsWithMultipleCommas() {
+        Map<String, String> props = getMinimalConfig();
+        props.remove(SqsSourceConnectorConfig.SQS_QUEUE_URL_CONFIG);
+        props.put(SqsSourceConnectorConfig.SQS_QUEUE_URLS_CONFIG,
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1,," +
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue2");
+
+        SqsSourceConnectorConfig config = new SqsSourceConnectorConfig(props);
+        List<String> urls = config.getQueueUrls();
+
+        // Should handle multiple commas gracefully
+        assertThat(urls).hasSize(2);
+        assertThat(urls).containsExactly(
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue1",
+                "https://sqs.us-east-1.amazonaws.com/123456789012/queue2"
+        );
     }
 
     private Map<String, String> getMinimalConfig() {

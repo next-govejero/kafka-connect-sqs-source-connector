@@ -833,6 +833,185 @@ sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule require
 3. **Use similar queue configurations**: All queues should have similar message volume and processing characteristics
 4. **Consider FIFO constraints**: If using FIFO queues, ordering is preserved within each queue, not across queues
 
+## Throughput Scaling
+
+The connector supports two strategies for scaling message processing throughput: **Single-Queue Multi-Task** mode and **Multi-Queue** mode.
+
+### Single-Queue Multi-Task Mode
+
+Process a single SQS queue with multiple parallel tasks for increased throughput. This is ideal when you have one high-volume queue and want to distribute the processing load.
+
+#### How It Works
+
+1. Configure a single queue URL with `tasks.max > 1`
+2. The connector creates multiple tasks, all polling the same queue
+3. SQS atomically distributes messages across tasks (each message goes to exactly one task)
+4. Tasks process messages in parallel, increasing overall throughput
+
+#### When to Use
+
+Single-queue multi-task mode is beneficial when:
+- **Message processing is CPU-intensive** (decompression, schema validation, JSON transformations)
+- **Downstream operations have latency** (DLQ writes, retry logic, external API calls)
+- **Messages are independent** and don't require strict ordering
+- **You have one high-volume queue** that needs faster processing
+
+#### Configuration
+
+```properties
+name=sqs-source-high-throughput
+connector.class=io.connect.sqs.SqsSourceConnector
+
+# IMPORTANT: Set tasks.max > 1 to enable parallel processing
+tasks.max=5
+
+# Single queue configuration
+sqs.queue.url=https://sqs.us-east-1.amazonaws.com/123456789012/high-volume-queue
+
+# Tune batch size and polling for optimal throughput
+sqs.max.messages=10
+sqs.wait.time.seconds=20
+poll.interval.ms=100
+
+# Kafka configuration
+kafka.topic=processed-messages
+aws.region=us-east-1
+sasl.mechanism=SCRAM-SHA-512
+security.protocol=SASL_SSL
+sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required \
+  username="your-username" \
+  password="your-password";
+```
+
+#### Expected Throughput Improvement
+
+With `tasks.max=5`:
+- **5x parallelism** for CPU-bound processing
+- Each task processes ~20% of the messages
+- Near-linear scaling for compute-intensive workloads
+
+#### FIFO Queue Considerations
+
+For FIFO queues with parallel tasks:
+- **Ordering is preserved per `MessageGroupId`**
+- Messages with the same `MessageGroupId` are processed in order
+- Different `MessageGroupId` values may be processed by different tasks simultaneously
+- This is safe as long as ordering requirements are scoped to `MessageGroupId`
+
+```properties
+# FIFO queue with parallel processing
+sqs.queue.url=https://sqs.us-east-1.amazonaws.com/123456789012/orders.fifo
+tasks.max=5
+
+# FIFO-specific settings
+sqs.fifo.queue=true
+sqs.fifo.deduplication.enabled=true
+```
+
+**Warning**: The connector logs a warning when FIFO queues are used with multiple tasks to remind you about per-group ordering.
+
+### Common Mistakes to Avoid
+
+#### ❌ DON'T: Duplicate Queue URLs
+
+```properties
+# WRONG - This does NOT increase throughput!
+sqs.queue.urls=https://sqs.../queue,https://sqs.../queue,https://sqs.../queue
+tasks.max=3
+```
+
+**What happens**: The connector deduplicates URLs and logs a warning. Creates 3 tasks on 1 queue (correct behavior after deduplication).
+
+#### ✅ DO: Use Single URL with Multiple Tasks
+
+```properties
+# CORRECT - Creates 3 parallel tasks on the same queue
+sqs.queue.url=https://sqs.../queue
+tasks.max=3
+```
+
+### Multi-Queue Mode
+
+For details on processing multiple different queues simultaneously, see the [Multi-Queue Support](#multi-queue-support) section above.
+
+### Choosing the Right Strategy
+
+| Scenario | Recommended Strategy | Configuration |
+|----------|---------------------|---------------|
+| **One high-volume queue** | Single-queue multi-task | `sqs.queue.url` + `tasks.max > 1` |
+| **Multiple different queues** | Multi-queue | `sqs.queue.urls` + `tasks.max >= queue count` |
+| **Low volume, fast processing** | Single task | `sqs.queue.url` + `tasks.max=1` |
+| **CPU-intensive processing** | Single-queue multi-task | `sqs.queue.url` + `tasks.max=5-10` |
+| **I/O-bound processing** | Single task or multi-queue | Depends on queue count |
+
+### Performance Tuning Parameters
+
+Optimize throughput by tuning these parameters:
+
+```properties
+# Batch size per poll (1-10, default: 10)
+sqs.max.messages=10
+
+# Long polling wait time (0-20 seconds, default: 10)
+sqs.wait.time.seconds=20
+
+# Delay between polls (milliseconds, default: 5000)
+poll.interval.ms=100
+
+# Visibility timeout (seconds, default: 30)
+# Should be > max processing time per message
+sqs.visibility.timeout.seconds=120
+```
+
+#### Tuning Guidelines
+
+1. **Maximize `sqs.max.messages`**: Use 10 (max) to reduce API calls
+2. **Increase `sqs.wait.time.seconds`**: Use 20 for long polling (reduces empty receives)
+3. **Reduce `poll.interval.ms`**: Lower values = more frequent polling (higher throughput)
+4. **Adjust `sqs.visibility.timeout.seconds`**: Set based on your message processing time
+5. **Scale `tasks.max`**: Match to CPU cores for CPU-bound workloads
+
+### Monitoring Throughput
+
+Enable INFO logging to see throughput metrics per task:
+
+```
+INFO  SQS Source Task Metrics:
+  Messages Received: 50000
+  Messages Published: 50000
+  Messages Deleted: 50000
+  Processing Rate: 167 msg/sec
+```
+
+With 5 tasks in parallel:
+- Total throughput: ~835 msg/sec (5 × 167)
+- Each task handles ~20% of messages
+
+### Best Practices
+
+1. **Start with `tasks.max=1`**, measure throughput, then scale up
+2. **Monitor CPU utilization** - scale tasks based on available CPU cores
+3. **Test with production-like load** to validate throughput improvements
+4. **Use FIFO queues carefully** - parallel tasks affect ordering per `MessageGroupId`
+5. **Set appropriate visibility timeout** - must be > max processing time to avoid reprocessing
+6. **Monitor DLQ** - high error rates may indicate processing bottlenecks
+
+### Troubleshooting Throughput Issues
+
+**Problem**: Adding more tasks doesn't increase throughput
+
+**Possible Causes**:
+1. **I/O-bound processing**: Bottleneck is network/database, not CPU
+2. **Queue has low message rate**: Not enough messages to distribute
+3. **Visibility timeout too high**: Messages invisible for too long
+4. **Downstream system throttling**: Kafka or external API limits
+
+**Solutions**:
+- Profile your message processing to identify bottlenecks
+- Increase `poll.interval.ms` if queue is low-volume
+- Reduce `sqs.visibility.timeout.seconds` if safe to do so
+- Monitor Kafka producer metrics for backpressure
+
 ## Message Filtering
 
 The connector supports client-side message filtering based on SQS message attributes. This reduces unnecessary processing by filtering out messages that don't match specific criteria.
