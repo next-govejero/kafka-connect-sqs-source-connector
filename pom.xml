@@ -43,7 +43,7 @@
         <assertj.version>3.27.6</assertj.version>
         <testcontainers.version>1.21.3</testcontainers.version>
         <confluent.version>7.5.0</confluent.version>
-        <avro.version>1.11.3</avro.version>
+        <avro.version>1.12.1</avro.version>
         <protobuf.version>3.25.1</protobuf.version>
         <jackson.version>2.15.3</jackson.version>
 
