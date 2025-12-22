@@ -205,7 +205,7 @@ public class S3Client implements AutoCloseable {
                 sessionName = config.getAwsStsRoleSessionName();
             }
             if (sessionName == null || sessionName.trim().isEmpty()) {
-                sessionName = "kafka-connect-sqs-s3-session";
+                sessionName = "kafka-connect-sqs-s3";  // Match default from SqsSourceConnectorConfig
             }
 
             AssumeRoleRequest.Builder roleRequestBuilder = AssumeRoleRequest.builder()

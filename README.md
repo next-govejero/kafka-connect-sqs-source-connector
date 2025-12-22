@@ -180,15 +180,70 @@ This enables cross-account S3 access without affecting SQS operations.
 - SQS operations always use base credentials (task role, `aws.assume.role.arn`, or static credentials)
 - Falls back to `aws.assume.role.arn` if S3-specific parameters are not set
 
-Example:
+**Configuration Example:**
 ```properties
 # SQS in your account: uses ECS task role
 aws.region=us-east-1
+
+# Enable claim check pattern (required for S3-specific credentials to be used)
+message.converter.class=io.connect.sqs.converter.ClaimCheckMessageConverter
+message.claimcheck.retrieve.if.uri=true
 
 # S3 in another account: assumes cross-account role
 s3.assume.role.arn=arn:aws:iam::987654321098:role/s3-reader-role
 s3.sts.role.session.name=kafka-connect-s3-session
 s3.sts.role.external.id=your-external-id
+```
+
+**Required IAM Configuration:**
+
+*1. Your ECS Task Role (Account A) needs permission to assume the S3 role:*
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::987654321098:role/s3-reader-role"
+    }
+  ]
+}
+```
+
+*2. S3 Role Trust Policy (Account B - Other Team's Account):*
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::YOUR_ACCOUNT_ID:role/your-ecs-task-role"
+      },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": {
+          "sts:ExternalId": "your-external-id"
+        }
+      }
+    }
+  ]
+}
+```
+
+*3. S3 Role Permissions Policy (Account B):*
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::their-claim-check-bucket/*"
+    }
+  ]
+}
 ```
 
 ### SQS Configuration
