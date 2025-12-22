@@ -54,6 +54,17 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
     public static final String AWS_ENDPOINT_OVERRIDE_CONFIG = "aws.endpoint.override";
     private static final String AWS_ENDPOINT_OVERRIDE_DOC = "Override AWS SQS endpoint (useful for LocalStack or custom endpoints)";
 
+    // S3-specific Credentials Configuration (for Claim Check Pattern)
+    public static final String S3_ASSUME_ROLE_ARN_CONFIG = "s3.assume.role.arn";
+    private static final String S3_ASSUME_ROLE_ARN_DOC = "AWS IAM role ARN to assume for S3 access (claim check pattern). If not set, falls back to aws.assume.role.arn";
+
+    public static final String S3_STS_ROLE_SESSION_NAME_CONFIG = "s3.sts.role.session.name";
+    private static final String S3_STS_ROLE_SESSION_NAME_DOC = "Session name for S3 assumed role. If not set, falls back to aws.sts.role.session.name";
+    private static final String S3_STS_ROLE_SESSION_NAME_DEFAULT = "kafka-connect-sqs-s3";
+
+    public static final String S3_STS_ROLE_EXTERNAL_ID_CONFIG = "s3.sts.role.external.id";
+    private static final String S3_STS_ROLE_EXTERNAL_ID_DOC = "External ID for assuming S3 role (for third-party access). If not set, falls back to aws.sts.role.external.id";
+
     // SQS Configuration
     public static final String SQS_QUEUE_URL_CONFIG = "sqs.queue.url";
     private static final String SQS_QUEUE_URL_DOC = "AWS SQS queue URL to consume messages from. For single queue mode, use this property. For multi-queue mode, use sqs.queue.urls instead.";
@@ -348,6 +359,42 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
                 ++awsGroupOrder,
                 Width.LONG,
                 "AWS Endpoint Override"
+        );
+
+        configDef.define(
+                S3_ASSUME_ROLE_ARN_CONFIG,
+                Type.STRING,
+                null,
+                Importance.LOW,
+                S3_ASSUME_ROLE_ARN_DOC,
+                awsGroup,
+                ++awsGroupOrder,
+                Width.LONG,
+                "S3 Assume Role ARN"
+        );
+
+        configDef.define(
+                S3_STS_ROLE_SESSION_NAME_CONFIG,
+                Type.STRING,
+                S3_STS_ROLE_SESSION_NAME_DEFAULT,
+                Importance.LOW,
+                S3_STS_ROLE_SESSION_NAME_DOC,
+                awsGroup,
+                ++awsGroupOrder,
+                Width.MEDIUM,
+                "S3 STS Role Session Name"
+        );
+
+        configDef.define(
+                S3_STS_ROLE_EXTERNAL_ID_CONFIG,
+                Type.STRING,
+                null,
+                Importance.LOW,
+                S3_STS_ROLE_EXTERNAL_ID_DOC,
+                awsGroup,
+                ++awsGroupOrder,
+                Width.LONG,
+                "S3 STS Role External ID"
         );
 
         // SQS Group
@@ -1336,6 +1383,19 @@ public class SqsSourceConnectorConfig extends AbstractConfig {
 
     public boolean isMessageOutputFieldExtractFailOnMissing() {
         return getBoolean(MESSAGE_OUTPUT_FIELD_EXTRACT_FAIL_ON_MISSING_CONFIG);
+    }
+
+    // S3-specific Credentials getters
+    public String getS3AssumeRoleArn() {
+        return getString(S3_ASSUME_ROLE_ARN_CONFIG);
+    }
+
+    public String getS3StsRoleSessionName() {
+        return getString(S3_STS_ROLE_SESSION_NAME_CONFIG);
+    }
+
+    public String getS3StsRoleExternalId() {
+        return getString(S3_STS_ROLE_EXTERNAL_ID_CONFIG);
     }
 }
 

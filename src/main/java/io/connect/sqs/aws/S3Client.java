@@ -131,11 +131,18 @@ public class S3Client implements AutoCloseable {
     /**
      * Creates AWS credentials provider based on configuration.
      * Supports static credentials, profile-based credentials, assume role, and default provider chain.
+     * For S3 access, prioritizes S3-specific role assumption (s3.assume.role.arn) over general AWS role (aws.assume.role.arn).
      */
     private AwsCredentialsProvider createCredentialsProvider() {
         String accessKeyId = config.getAwsAccessKeyId();
         String secretKey = config.getAwsSecretAccessKey();
-        String roleArn = config.getAwsAssumeRoleArn();
+
+        // For S3, check S3-specific role ARN first, then fall back to general AWS role ARN
+        String roleArn = config.getS3AssumeRoleArn();
+        if (roleArn == null || roleArn.trim().isEmpty()) {
+            roleArn = config.getAwsAssumeRoleArn();
+        }
+
         String profileName = config.getAwsCredentialsProfile();
         String profilePath = config.getAwsCredentialsFilePath();
 
@@ -177,24 +184,40 @@ public class S3Client implements AutoCloseable {
 
         // If assume role is configured, wrap the base provider
         if (roleArn != null && !roleArn.trim().isEmpty()) {
-            log.info("Assuming AWS role: {}", roleArn);
+            // Determine which role ARN is being used for logging
+            boolean usingS3SpecificRole = config.getS3AssumeRoleArn() != null && !config.getS3AssumeRoleArn().trim().isEmpty();
+            if (usingS3SpecificRole) {
+                log.info("Assuming S3-specific AWS role: {}", roleArn);
+            } else {
+                log.info("Assuming general AWS role for S3 access: {}", roleArn);
+            }
 
             try (StsClient stsClient = StsClient.builder()
                     .region(Region.of(config.getAwsRegion()))
                     .credentialsProvider(baseProvider)
                     .build()) {
 
-                String sessionName = config.getAwsStsRoleSessionName() != null
-                        ? config.getAwsStsRoleSessionName()
-                        : "kafka-connect-sqs-s3-session";
+                // For S3, check S3-specific session name first, then fall back to general session name
+                String sessionName = config.getS3StsRoleSessionName();
+                if (sessionName == null || sessionName.trim().isEmpty()) {
+                    sessionName = config.getAwsStsRoleSessionName();
+                }
+                if (sessionName == null || sessionName.trim().isEmpty()) {
+                    sessionName = "kafka-connect-sqs-s3-session";
+                }
 
                 AssumeRoleRequest.Builder roleRequestBuilder = AssumeRoleRequest.builder()
                         .roleArn(roleArn)
                         .roleSessionName(sessionName);
 
-                String externalId = config.getAwsStsRoleExternalId();
+                // For S3, check S3-specific external ID first, then fall back to general external ID
+                String externalId = config.getS3StsRoleExternalId();
+                if (externalId == null || externalId.trim().isEmpty()) {
+                    externalId = config.getAwsStsRoleExternalId();
+                }
                 if (externalId != null && !externalId.trim().isEmpty()) {
                     roleRequestBuilder.externalId(externalId);
+                    log.info("Using external ID for S3 role assumption");
                 }
 
                 return StsAssumeRoleCredentialsProvider.builder()
