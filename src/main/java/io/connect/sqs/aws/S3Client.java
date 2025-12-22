@@ -185,46 +185,47 @@ public class S3Client implements AutoCloseable {
         // If assume role is configured, wrap the base provider
         if (roleArn != null && !roleArn.trim().isEmpty()) {
             // Determine which role ARN is being used for logging
-            boolean usingS3SpecificRole = config.getS3AssumeRoleArn() != null && !config.getS3AssumeRoleArn().trim().isEmpty();
+            boolean usingS3SpecificRole = config.getS3AssumeRoleArn() != null
+                    && !config.getS3AssumeRoleArn().trim().isEmpty();
             if (usingS3SpecificRole) {
                 log.info("Assuming S3-specific AWS role: {}", roleArn);
             } else {
                 log.info("Assuming general AWS role for S3 access: {}", roleArn);
             }
 
-            try (StsClient stsClient = StsClient.builder()
+            // Create STS client (not using try-with-resources - lifecycle managed by credentials provider)
+            StsClient stsClient = StsClient.builder()
                     .region(Region.of(config.getAwsRegion()))
                     .credentialsProvider(baseProvider)
-                    .build()) {
+                    .build();
 
-                // For S3, check S3-specific session name first, then fall back to general session name
-                String sessionName = config.getS3StsRoleSessionName();
-                if (sessionName == null || sessionName.trim().isEmpty()) {
-                    sessionName = config.getAwsStsRoleSessionName();
-                }
-                if (sessionName == null || sessionName.trim().isEmpty()) {
-                    sessionName = "kafka-connect-sqs-s3-session";
-                }
-
-                AssumeRoleRequest.Builder roleRequestBuilder = AssumeRoleRequest.builder()
-                        .roleArn(roleArn)
-                        .roleSessionName(sessionName);
-
-                // For S3, check S3-specific external ID first, then fall back to general external ID
-                String externalId = config.getS3StsRoleExternalId();
-                if (externalId == null || externalId.trim().isEmpty()) {
-                    externalId = config.getAwsStsRoleExternalId();
-                }
-                if (externalId != null && !externalId.trim().isEmpty()) {
-                    roleRequestBuilder.externalId(externalId);
-                    log.info("Using external ID for S3 role assumption");
-                }
-
-                return StsAssumeRoleCredentialsProvider.builder()
-                        .stsClient(stsClient)
-                        .refreshRequest(roleRequestBuilder.build())
-                        .build();
+            // For S3, check S3-specific session name first, then fall back to general session name
+            String sessionName = config.getS3StsRoleSessionName();
+            if (sessionName == null || sessionName.trim().isEmpty()) {
+                sessionName = config.getAwsStsRoleSessionName();
             }
+            if (sessionName == null || sessionName.trim().isEmpty()) {
+                sessionName = "kafka-connect-sqs-s3-session";
+            }
+
+            AssumeRoleRequest.Builder roleRequestBuilder = AssumeRoleRequest.builder()
+                    .roleArn(roleArn)
+                    .roleSessionName(sessionName);
+
+            // For S3, check S3-specific external ID first, then fall back to general external ID
+            String externalId = config.getS3StsRoleExternalId();
+            if (externalId == null || externalId.trim().isEmpty()) {
+                externalId = config.getAwsStsRoleExternalId();
+            }
+            if (externalId != null && !externalId.trim().isEmpty()) {
+                roleRequestBuilder.externalId(externalId);
+                log.info("Using external ID for S3 role assumption");
+            }
+
+            return StsAssumeRoleCredentialsProvider.builder()
+                    .stsClient(stsClient)
+                    .refreshRequest(roleRequestBuilder.build())
+                    .build();
         }
 
         return baseProvider;

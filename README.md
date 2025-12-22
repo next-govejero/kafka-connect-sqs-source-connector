@@ -170,7 +170,15 @@ connect-standalone.sh \
 | `s3.sts.role.external.id` | External ID for S3 role assumption | No | Falls back to `aws.sts.role.external.id` |
 
 **Use Case for S3-Specific Credentials:**
-When SQS queue is in your AWS account but S3 bucket (for claim check pattern) is in a different AWS account, you can use separate credentials for S3 access. This enables cross-account S3 access without affecting SQS access.
+
+When using the **Claim Check Pattern** (`ClaimCheckMessageConverter` or `DecompressingClaimCheckMessageConverter`)
+and the S3 bucket is in a different AWS account than your SQS queue, you can use separate credentials for S3 access.
+This enables cross-account S3 access without affecting SQS operations.
+
+**Important Notes:**
+- These parameters only affect S3 operations when `message.claimcheck.retrieve.if.uri=true`
+- SQS operations always use base credentials (task role, `aws.assume.role.arn`, or static credentials)
+- Falls back to `aws.assume.role.arn` if S3-specific parameters are not set
 
 Example:
 ```properties
