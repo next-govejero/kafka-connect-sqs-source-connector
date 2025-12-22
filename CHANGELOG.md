@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **S3-Specific Credentials for Cross-Account Access**
+  - Separate credential configuration for S3 access (claim check pattern)
+  - New configuration parameters:
+    - `s3.assume.role.arn` - IAM role ARN to assume for S3 access only
+    - `s3.sts.role.session.name` - Session name for S3 assumed role
+    - `s3.sts.role.external.id` - External ID for S3 role assumption
+  - Enables cross-account S3 access while keeping SQS in your account
+  - Backward compatible - falls back to `aws.assume.role.arn` if not configured
+  - Use case: SQS queue in Account A, S3 bucket (for claim check) in Account B
+  - Decouples infrastructure dependencies between teams
+  - Detailed logging to identify which role is being used for S3 access
 - **Message Decompression Support**
   - Automatic decompression of compressed SQS message data (gzip, deflate, zlib)
   - Auto-detection of compression format based on magic bytes
