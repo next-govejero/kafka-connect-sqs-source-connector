@@ -4,7 +4,7 @@
 # Optimized for fast builds with BuildKit cache mounts
 
 # Stage 1: Build the connector
-FROM maven:3.9-eclipse-temurin-11-alpine AS builder
+FROM maven:3.9.11-eclipse-temurin-25-alpine AS builder
 
 WORKDIR /build
 
