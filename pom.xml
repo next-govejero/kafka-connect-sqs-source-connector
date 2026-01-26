@@ -40,7 +40,7 @@
         <logback.version>1.5.23</logback.version>
         <junit.version>5.11.0</junit.version>
         <mockito.version>5.21.0</mockito.version>
-        <assertj.version>3.27.6</assertj.version>
+        <assertj.version>3.27.7</assertj.version>
         <testcontainers.version>1.21.4</testcontainers.version>
         <confluent.version>7.9.0</confluent.version>
         <avro.version>1.12.1</avro.version>
